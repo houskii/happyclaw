@@ -119,10 +119,14 @@ configRoutes.put(
     const actor = (c.get('user') as AuthUser).username;
     const current = getClaudeProviderConfig();
 
+    // When clearing baseUrl, also clear anthropicAuthToken since it requires a baseUrl
+    const newBaseUrl = validation.data.anthropicBaseUrl;
+    const keepAuthToken = newBaseUrl ? current.anthropicAuthToken : '';
+
     try {
       const saved = saveClaudeProviderConfig({
-        anthropicBaseUrl: validation.data.anthropicBaseUrl,
-        anthropicAuthToken: current.anthropicAuthToken,
+        anthropicBaseUrl: newBaseUrl,
+        anthropicAuthToken: keepAuthToken,
         anthropicApiKey: current.anthropicApiKey,
         claudeCodeOauthToken: current.claudeCodeOauthToken,
         claudeOAuthCredentials: current.claudeOAuthCredentials,

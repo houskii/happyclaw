@@ -110,6 +110,30 @@ export function ClaudeProviderSection({ setNotice, setError }: ClaudeProviderSec
     return new Date(config.updatedAt).toLocaleString('zh-CN');
   }, [config?.updatedAt]);
 
+  // Switch back to official using existing OAuth credentials (no re-auth needed)
+  const handleUseExistingOAuth = async () => {
+    setSaving(true);
+    setNotice(null);
+    setError(null);
+    try {
+      await api.put<ClaudeConfigPublic>('/api/config/claude', {
+        anthropicBaseUrl: '',
+      });
+      const saved = await api.put<ClaudeConfigPublic>('/api/config/claude/secrets', {
+        clearAnthropicAuthToken: true,
+        clearAnthropicApiKey: true,
+      });
+      setConfig(saved);
+      setProviderMode('official');
+      setNotice('已切换回官方渠道，使用已有 OAuth 凭据。');
+      await loadConfig();
+    } catch (err) {
+      setError(getErrorMessage(err, '切换失败'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSaveOfficial = async () => {
     if (!officialCode.trim()) {
       setError('请填写官方 setup-token 或粘贴 .credentials.json 内容');
@@ -360,6 +384,16 @@ export function ClaudeProviderSection({ setNotice, setError }: ClaudeProviderSec
                 </div>
               )}
               <div className="text-xs text-emerald-600">系统每 5 分钟检查一次，过期前 2 小时内自动刷新。</div>
+              {/* Show switch button when third-party config is still active */}
+              {(config.anthropicBaseUrl || config.hasAnthropicAuthToken) && (
+                <div className="pt-2 border-t border-emerald-200">
+                  <div className="text-xs text-slate-600 mb-2">当前正在使用第三方渠道，可直接切换回官方。</div>
+                  <Button size="sm" onClick={handleUseExistingOAuth} disabled={loading || saving}>
+                    {saving && <Loader2 className="size-4 animate-spin" />}
+                    使用此凭据切换回官方
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
