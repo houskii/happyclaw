@@ -1212,6 +1212,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // ⑥ 主对话 streaming — 使用 applyStreamEvent 共享函数
     set((s) => {
+      // If streaming state was already cleared (final message received),
+      // ignore late-arriving stream events to prevent "thinking" from reappearing.
+      if (!s.streaming[chatJid] && s.waiting[chatJid] === false) {
+        return s;
+      }
       const MAX_STREAMING_TEXT = 8000;
       const prev = s.streaming[chatJid] || { ...DEFAULT_STREAMING_STATE };
       const next = { ...prev };

@@ -25,6 +25,8 @@ export interface StdoutParserState {
   hasSuccessOutput: boolean;
   /** True when agent emitted a { status: 'closed' } marker (exit due to _close sentinel). */
   hasClosedOutput: boolean;
+  /** True when agent emitted a stream event with statusText='interrupted'. */
+  hasInterruptedOutput: boolean;
 }
 
 export interface StdoutParserOptions {
@@ -44,6 +46,7 @@ export function createStdoutParserState(): StdoutParserState {
     outputChain: Promise.resolve(),
     hasSuccessOutput: false,
     hasClosedOutput: false,
+    hasInterruptedOutput: false,
   };
 }
 
@@ -105,6 +108,9 @@ export function attachStdoutHandler(
           }
           if (parsed.status === 'closed') {
             state.hasClosedOutput = true;
+          }
+          if (parsed.status === 'stream' && parsed.streamEvent?.statusText === 'interrupted') {
+            state.hasInterruptedOutput = true;
           }
           // Activity detected — reset the hard timeout
           opts.resetTimeout();
@@ -359,6 +365,18 @@ export function handleNonZeroExit(
   const exitLabel =
     code === null ? `signal ${signal || 'unknown'}` : `code ${code}`;
   const { newSessionId, outputChain } = ctx.stdoutState;
+
+  // Graceful interrupt: agent emitted 'interrupted' status before exiting.
+  if (ctx.stdoutState.hasInterruptedOutput && ctx.onOutput) {
+    logger.info(
+      { group: ctx.groupName, code, signal, duration, newSessionId },
+      `${ctx.label} exited after interrupt (treating as success)`,
+    );
+    waitForOutputChain(outputChain, ctx.groupName, `${ctx.filePrefix} interrupt path`, () => {
+      ctx.resolvePromise({ status: 'success', result: null, newSessionId });
+    });
+    return true;
+  }
 
   // Graceful shutdown: agent was killed by SIGTERM/SIGKILL (e.g. user
   // clicked stop, session reset, clear-history). Treat as normal

@@ -698,9 +698,11 @@ async function runQuery(
     if (shouldInterrupt()) {
       log('Interrupt sentinel detected, interrupting current query');
       interruptedDuringQuery = true;
+      setInterruptInProgress(true);
       queryRef?.interrupt().catch((err: unknown) => log(`Interrupt call failed: ${err}`));
       stream.end();
       ipcPolling = false;
+      setTimeout(() => setInterruptInProgress(false), 5000);
       return;
     }
     const { messages, modeChange } = drainIpcInput();
@@ -968,6 +970,12 @@ async function runQuery(
   } catch (err) {
     ipcPolling = false;
     const errorMessage = err instanceof Error ? err.message : String(err);
+
+    // 中断导致的 SDK 错误（error_during_execution 等）：正常返回，不抛出
+    if (interruptedDuringQuery) {
+      log(`runQuery error during interrupt (non-fatal): ${errorMessage}`);
+      return { newSessionId, lastAssistantUuid, closedDuringQuery, interruptedDuringQuery };
+    }
 
     // 检测上下文溢出错误
     if (isContextOverflowError(errorMessage)) {
@@ -1268,6 +1276,9 @@ process.on('uncaughtException', (err: unknown) => {
   try { writeOutput({ status: 'error', result: null, error: String(err) }); } catch { /* ignore */ }
   process.exit(1);
 });
+
+let _interruptInProgress = false;
+export function setInterruptInProgress(v: boolean): void { _interruptInProgress = v; }
 
 process.on('unhandledRejection', (reason: unknown) => {
   const errno = reason as NodeJS.ErrnoException;
