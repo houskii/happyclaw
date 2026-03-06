@@ -680,7 +680,7 @@ export function updateLatestMessageTokenUsage(
  */
 export function getTokenUsageStats(
   days: number,
-  groupFolder?: string,
+  chatJids?: string[],
 ): Array<{
   date: string;
   model: string;
@@ -695,8 +695,11 @@ export function getTokenUsageStats(
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString();
 
-  // If groupFolder is specified, join with chats to find all JIDs for that folder
-  // For now, aggregate across all chats (admin view)
+  const jidFilter = chatJids && chatJids.length > 0
+    ? `AND m.chat_jid IN (${chatJids.map(() => '?').join(',')})`
+    : '';
+  const params: unknown[] = [sinceStr, ...(chatJids || [])];
+
   const baseQuery = `
     SELECT
       date(m.timestamp) as date,
@@ -709,10 +712,11 @@ export function getTokenUsageStats(
     FROM messages m
     WHERE m.token_usage IS NOT NULL
       AND m.timestamp >= ?
+      ${jidFilter}
     ORDER BY m.timestamp ASC
   `;
 
-  const rows = db.prepare(baseQuery).all(sinceStr) as Array<{
+  const rows = db.prepare(baseQuery).all(...params) as Array<{
     date: string;
     model_usage_json: string | null;
     input_tokens: number;
@@ -816,6 +820,7 @@ export function getTokenUsageStats(
  */
 export function getTokenUsageSummary(
   days: number,
+  chatJids?: string[],
 ): {
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -829,6 +834,11 @@ export function getTokenUsageSummary(
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString();
 
+  const jidFilter = chatJids && chatJids.length > 0
+    ? `AND chat_jid IN (${chatJids.map(() => '?').join(',')})`
+    : '';
+  const params: unknown[] = [sinceStr, ...(chatJids || [])];
+
   const row = db.prepare(`
     SELECT
       COALESCE(SUM(json_extract(token_usage, '$.inputTokens')), 0) as total_input,
@@ -840,7 +850,8 @@ export function getTokenUsageSummary(
       COUNT(DISTINCT date(timestamp)) as total_sessions
     FROM messages
     WHERE token_usage IS NOT NULL AND timestamp >= ?
-  `).get(sinceStr) as {
+      ${jidFilter}
+  `).get(...params) as {
     total_input: number;
     total_output: number;
     total_cache_read: number;
