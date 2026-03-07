@@ -60,6 +60,7 @@ export interface FeishuConnection {
   connect(opts: ConnectOptions): Promise<boolean>;
   stop(): Promise<void>;
   sendMessage(chatId: string, text: string, localImagePaths?: string[]): Promise<void>;
+  sendImage(chatId: string, imageBuffer: Buffer, mimeType: string, caption?: string, fileName?: string): Promise<void>;
   sendReaction(chatId: string, isTyping: boolean): Promise<void>;
   isConnected(): boolean;
   syncGroups(): Promise<void>;
@@ -603,20 +604,57 @@ export function createFeishuConnection(config: FeishuConnectionConfig): FeishuCo
     let attachmentsJson: string | undefined;
 
     if (extracted.imageKeys && extracted.imageKeys.length > 0) {
-      // 独立图片消息（type='image'）：原有逻辑，下载为 base64 供 Vision
+      // 图片消息：下载后双轨处理
+      // 1. Vision 通道：base64 附件供模型看图
+      // 2. 存盘通道：写入工作区文件，agent 可直接操作（压缩、发送等）
       const attachments = [];
+      const groupFolder = resolveGroupFolder?.(chatJid);
+      const savedPaths: string[] = [];
+
       for (const imageKey of extracted.imageKeys) {
         const imageData = await downloadFeishuImage(messageId, imageKey);
-        if (imageData) {
-          attachments.push({
-            type: 'image',
-            data: imageData.base64,
-            mimeType: imageData.mimeType,
-          });
+        if (!imageData) continue;
+
+        // Vision 附件
+        attachments.push({
+          type: 'image',
+          data: imageData.base64,
+          mimeType: imageData.mimeType,
+        });
+
+        // 存盘：扩展名从 mimeType 推断，对齐文件消息处理逻辑
+        if (groupFolder) {
+          const extMap: Record<string, string> = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'image/bmp': '.bmp',
+            'image/tiff': '.tiff',
+          };
+          const ext = extMap[imageData.mimeType] ?? '.jpg';
+          const fileName = `feishu_img_${imageKey.slice(-8)}${ext}`;
+          try {
+            const relPath = await saveDownloadedFile(
+              groupFolder,
+              'feishu',
+              fileName,
+              Buffer.from(imageData.base64, 'base64'),
+            );
+            if (relPath) savedPaths.push(relPath);
+          } catch (err) {
+            logger.warn({ err, imageKey }, 'Failed to save Feishu image to disk');
+          }
         }
       }
+
       if (attachments.length > 0) {
         attachmentsJson = JSON.stringify(attachments);
+        // 在 content 中添加图片标记 + 磁盘路径，与文件消息保持一致
+        // agent 可通过路径直接操作文件，无需从 DB 解码 base64
+        const pathHints = savedPaths.map(p => `[图片: ${p}]`).join('\n');
+        const imgMarker = pathHints || '[图片]';
+        text = text ? `${imgMarker}\n${text}` : imgMarker;
       }
     } else if (extracted.fileInfos && extracted.fileInfos.length > 0) {
       // 文件消息：下载到磁盘，路径内联替换
@@ -1141,6 +1179,68 @@ export function createFeishuConnection(config: FeishuConnectionConfig): FeishuCo
       } catch (err) {
         logger.error({ err, chatId }, 'Failed to send Feishu card message');
         clearAckReaction();
+      }
+    },
+
+    async sendImage(chatId: string, imageBuffer: Buffer, mimeType: string, caption?: string, _fileName?: string /* Feishu image API has no filename field, intentionally unused */): Promise<void> {
+      if (!client) {
+        logger.warn({ chatId }, 'Feishu client not initialized, skip sending image');
+        return;
+      }
+
+      try {
+        // Step 1: Upload image to Feishu to get image_key
+        const uploadResult = await client.im.v1.image.create({
+          data: {
+            image_type: 'message',
+            image: imageBuffer,
+          },
+        }) as { data?: { image_key?: string } } | null;
+
+        const imageKey = uploadResult?.data?.image_key;
+        if (!imageKey) {
+          logger.error({ chatId }, 'Feishu image upload failed: no image_key returned');
+          throw new Error('Feishu image upload failed: no image_key in response');
+        }
+
+        // Step 2: Send image message
+        // receive_id_type: group chat ids start with "oc_", DM open_ids start with "ou_"
+        const receive_id_type = chatId.startsWith('oc_') ? 'chat_id' : 'open_id';
+        const lastMsgId = lastMessageIdByChat.get(chatId);
+        const content = JSON.stringify({ image_key: imageKey });
+
+        if (lastMsgId) {
+          await client.im.message.reply({
+            path: { message_id: lastMsgId },
+            data: { content, msg_type: 'image' },
+          });
+        } else {
+          await client.im.v1.message.create({
+            params: { receive_id_type },
+            data: {
+              receive_id: chatId,
+              msg_type: 'image',
+              content,
+            },
+          });
+        }
+
+        // Step 3: If caption provided, send it as a follow-up text message
+        if (caption) {
+          await client.im.v1.message.create({
+            params: { receive_id_type },
+            data: {
+              receive_id: chatId,
+              msg_type: 'text',
+              content: JSON.stringify({ text: caption }),
+            },
+          });
+        }
+
+        logger.info({ chatId, imageKey, mimeType, size: imageBuffer.length }, 'Feishu image sent');
+      } catch (err) {
+        logger.error({ err, chatId, mimeType }, 'Failed to send Feishu image');
+        throw err;
       }
     },
 

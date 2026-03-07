@@ -122,6 +122,32 @@ class IMConnectionManager {
   }
 
   /**
+   * Send an image to an IM chat, auto-routing via JID prefix.
+   */
+  async sendImage(jid: string, imageBuffer: Buffer, mimeType: string, caption?: string, fileName?: string): Promise<void> {
+    const channelType = getChannelType(jid);
+    if (!channelType) {
+      logger.debug({ jid }, 'Unknown channel type for JID, skip sending image');
+      return;
+    }
+
+    const chatId = extractChatId(jid);
+    const channel = this.findChannelForJid(jid, channelType);
+    if (channel?.sendImage) {
+      await channel.sendImage(chatId, imageBuffer, mimeType, caption, fileName);
+      return;
+    }
+
+    // Fallback: if channel doesn't support sendImage, send caption as text
+    if (caption && channel) {
+      await channel.sendMessage(chatId, `📷 ${caption}`);
+      return;
+    }
+
+    logger.warn({ jid, channelType }, 'No IM channel available to send image');
+  }
+
+  /**
    * Set typing indicator on an IM chat, auto-routing via JID prefix.
    */
   async setTyping(jid: string, isTyping: boolean): Promise<void> {

@@ -42,6 +42,7 @@ export interface TelegramConnection {
   connect(opts: TelegramConnectOpts): Promise<void>;
   disconnect(): Promise<void>;
   sendMessage(chatId: string, text: string, localImagePaths?: string[]): Promise<void>;
+  sendImage(chatId: string, imageBuffer: Buffer, mimeType: string, caption?: string, fileName?: string): Promise<void>;
   sendChatAction(chatId: string, action: 'typing'): Promise<void>;
   isConnected(): boolean;
 }
@@ -487,12 +488,40 @@ export function createTelegramConnection(config: TelegramConnectionConfig): Tele
           const imageData = await downloadTelegramPhotoAsBase64(photo.file_id, photo.file_size);
 
           let attachmentsJson: string | undefined;
+          let imgMarker = '[图片]';
+
           if (imageData) {
             attachmentsJson = JSON.stringify([{ type: 'image', data: imageData.base64, mimeType: imageData.mimeType }]);
+
+            // 存盘：与飞书图片处理逻辑对齐，agent 可通过路径直接操作文件
+            const groupFolder = opts.resolveGroupFolder?.(jid);
+            if (groupFolder) {
+              const extMap: Record<string, string> = {
+                'image/jpeg': '.jpg',
+                'image/png': '.png',
+                'image/gif': '.gif',
+                'image/webp': '.webp',
+                'image/bmp': '.bmp',
+                'image/tiff': '.tiff',
+              };
+              const ext = extMap[imageData.mimeType] ?? '.jpg';
+              const fileName = `telegram_img_${photo.file_id.slice(-8)}${ext}`;
+              try {
+                const relPath = await saveDownloadedFile(
+                  groupFolder,
+                  'telegram',
+                  fileName,
+                  Buffer.from(imageData.base64, 'base64'),
+                );
+                if (relPath) imgMarker = `[图片: ${relPath}]`;
+              } catch (err) {
+                logger.warn({ err, fileId: photo.file_id }, 'Failed to save Telegram photo to disk');
+              }
+            }
           }
 
           const caption = ctx.message.caption;
-          const text = caption ? `[图片]\n${caption}` : '[图片]';
+          const text = caption ? `${imgMarker}\n${caption}` : imgMarker;
 
           try {
             await ctx.react('👀');
@@ -709,6 +738,64 @@ export function createTelegramConnection(config: TelegramConnectionConfig): Tele
         logger.info({ chatId }, 'Telegram message sent');
       } catch (err) {
         logger.error({ err, chatId }, 'Failed to send Telegram message');
+        throw err;
+      }
+    },
+
+    async sendImage(chatId: string, imageBuffer: Buffer, mimeType: string, caption?: string, fileName?: string): Promise<void> {
+      if (!bot) {
+        logger.warn({ chatId }, 'Telegram bot not initialized, skip sending image');
+        return;
+      }
+
+      const chatIdNum = Number(chatId);
+      if (isNaN(chatIdNum)) {
+        logger.error({ chatId }, 'Invalid Telegram chat ID for image');
+        return;
+      }
+
+      try {
+        // Determine file extension from MIME type
+        const extMap: Record<string, string> = {
+          'image/png': '.png',
+          'image/jpeg': '.jpg',
+          'image/gif': '.gif',
+          'image/webp': '.webp',
+          'image/bmp': '.bmp',
+          'image/tiff': '.tiff',
+        };
+        const ext = extMap[mimeType] || '.png';
+        const effectiveFileName = fileName || `image${ext}`;
+
+        const inputFile = new InputFile(imageBuffer, effectiveFileName);
+
+        // Telegram caption limit is 1024 characters; truncate to avoid API errors
+        const CAPTION_MAX = 1024;
+        const safeCaption = caption && caption.length > CAPTION_MAX
+          ? caption.slice(0, CAPTION_MAX - 3) + '...'
+          : (caption || undefined);
+
+        // GIF → sendAnimation (preserves animation); JPEG/PNG/WebP → sendPhoto; others → sendDocument
+        const isGif = mimeType === 'image/gif';
+        const isPhoto = ['image/png', 'image/jpeg', 'image/webp'].includes(mimeType);
+
+        if (isGif) {
+          await bot.api.sendAnimation(chatIdNum, inputFile, {
+            caption: safeCaption,
+          });
+        } else if (isPhoto) {
+          await bot.api.sendPhoto(chatIdNum, inputFile, {
+            caption: safeCaption,
+          });
+        } else {
+          await bot.api.sendDocument(chatIdNum, inputFile, {
+            caption: safeCaption,
+          });
+        }
+
+        logger.info({ chatId, mimeType, size: imageBuffer.length, fileName: effectiveFileName }, 'Telegram image sent');
+      } catch (err) {
+        logger.error({ err, chatId, mimeType }, 'Failed to send Telegram image');
         throw err;
       }
     },

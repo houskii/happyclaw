@@ -121,6 +121,84 @@ export function createMcpTools(ctx: McpContext): SdkMcpToolDefinition<any>[] {
       },
     ),
 
+    // --- send_image ---
+    tool(
+      'send_image',
+      "Send an image file from the workspace to the user or group via IM (Feishu/Telegram). The file must be an image (PNG, JPEG, GIF, WebP, etc.) and must exist in the workspace. Use this when you've generated or downloaded an image and want to share it with the user. Optionally include a caption.",
+      {
+        file_path: z.string().describe('Path to the image file in the workspace (relative to workspace root or absolute)'),
+        caption: z.string().optional().describe('Optional caption text to send with the image'),
+      },
+      async (args) => {
+        // Resolve path relative to workspace
+        const absPath = path.isAbsolute(args.file_path)
+          ? args.file_path
+          : path.join(ctx.workspaceGroup, args.file_path);
+
+        // Security: ensure path is within workspace
+        // Use path.sep suffix to prevent prefix-bypass (e.g. /ws/group1 matching /ws/group10/evil.png)
+        const resolved = path.resolve(absPath);
+        const safeRoot = ctx.workspaceGroup.endsWith(path.sep)
+          ? ctx.workspaceGroup
+          : ctx.workspaceGroup + path.sep;
+        if (resolved !== ctx.workspaceGroup && !resolved.startsWith(safeRoot)) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: file path must be within workspace directory.` }],
+            isError: true,
+          };
+        }
+
+        // Check file exists
+        if (!fs.existsSync(resolved)) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: file not found: ${args.file_path}` }],
+            isError: true,
+          };
+        }
+
+        // Read file and check size (10MB limit for both Feishu and Telegram)
+        const stat = fs.statSync(resolved);
+        if (stat.size > 10 * 1024 * 1024) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: image file too large (${(stat.size / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.` }],
+            isError: true,
+          };
+        }
+        if (stat.size === 0) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: image file is empty.` }],
+            isError: true,
+          };
+        }
+
+        const buffer = fs.readFileSync(resolved);
+        const base64 = buffer.toString('base64');
+
+        // Detect MIME type from magic bytes
+        const { detectImageMimeTypeFromBase64Strict } = await import('./image-detector.js');
+        const mimeType = detectImageMimeTypeFromBase64Strict(base64);
+        if (!mimeType) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: file does not appear to be a supported image format (PNG, JPEG, GIF, WebP, TIFF, BMP).` }],
+            isError: true,
+          };
+        }
+
+        const data = {
+          type: 'image',
+          chatJid: ctx.chatJid,
+          imageBase64: base64,
+          mimeType,
+          caption: args.caption || undefined,
+          fileName: path.basename(resolved),
+          groupFolder: ctx.groupFolder,
+          timestamp: new Date().toISOString(),
+        };
+        writeIpcFile(MESSAGES_DIR, data);
+        return { content: [{ type: 'text' as const, text: `Image sent: ${path.basename(resolved)} (${mimeType}, ${(stat.size / 1024).toFixed(1)}KB)` }] };
+      },
+    ),
+
     // --- schedule_task ---
     tool(
       'schedule_task',
