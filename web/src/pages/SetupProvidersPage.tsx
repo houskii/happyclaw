@@ -5,29 +5,21 @@ import { useNavigate } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { api } from '../api/client';
+import type {
+  ClaudeThirdPartyProfileItem,
+  EnvRow,
+} from '../components/settings/types';
+import { getErrorMessage } from '../components/settings/types';
 import { useAuthStore } from '../stores/auth';
 
 type ProviderMode = 'official' | 'third_party';
-
-interface EnvRow {
-  key: string;
-  value: string;
-}
 
 const RESERVED_ENV_KEYS = new Set([
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN',
+  'HAPPYCLAW_MODEL',
 ]);
-
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (typeof err === 'object' && err !== null && 'message' in err) {
-    const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
-  }
-  if (err instanceof Error && err.message) return err.message;
-  return fallback;
-}
 
 function buildCustomEnv(rows: EnvRow[]): { customEnv: Record<string, string>; error: string | null } {
   const customEnv: Record<string, string> = {};
@@ -88,6 +80,7 @@ export function SetupProvidersPage() {
   // Third-party mode
   const [baseUrl, setBaseUrl] = useState('');
   const [authToken, setAuthToken] = useState('');
+  const [model, setModel] = useState('');
   const [customEnvRows, setCustomEnvRows] = useState<EnvRow[]>([]);
 
   useEffect(() => {
@@ -259,12 +252,16 @@ export function SetupProvidersPage() {
           await api.put('/api/config/claude/custom-env', { customEnv: {} });
         }
       } else {
-        await api.put('/api/config/claude', { anthropicBaseUrl: baseUrl.trim() });
-        await api.put('/api/config/claude/secrets', {
-          anthropicAuthToken: authToken.trim(),
-          clearClaudeCodeOauthToken: true,
-          clearAnthropicApiKey: true,
-        });
+        await api.post<ClaudeThirdPartyProfileItem>(
+          '/api/config/claude/third-party/profiles',
+          {
+            name: '默认第三方',
+            anthropicBaseUrl: baseUrl.trim(),
+            anthropicAuthToken: authToken.trim(),
+            happyclawModel: model.trim(),
+          },
+        );
+
         await api.put('/api/config/claude/custom-env', { customEnv });
       }
 
@@ -482,6 +479,17 @@ export function SetupProvidersPage() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">HAPPYCLAW_MODEL（可选）</label>
+                  <Input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="opus / sonnet / haiku 或完整模型 ID"
+                    className="font-mono"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-foreground mb-1">ANTHROPIC_AUTH_TOKEN（必填）</label>
                   <Input
                     type="password"
@@ -504,6 +512,9 @@ export function SetupProvidersPage() {
                     添加
                   </button>
                 </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  这些变量属于系统全局设置，后续切换第三方配置时不会跟随切换。
+                </p>
 
                 {customEnvRows.length === 0 ? (
                   <p className="text-xs text-muted-foreground">暂无</p>
