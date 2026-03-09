@@ -1412,8 +1412,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             typeof result.result === 'string'
               ? result.result
               : JSON.stringify(result.result);
-          // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-          const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+          // Strip <internal>...</internal> and <process>...</process> blocks — agent uses these for internal reasoning/process text
+          const text = raw
+            .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+            .replace(/<process>[\s\S]*?<\/process>/g, '')
+            .trim();
           logger.info(
             { group: group.name },
             `Agent output: ${raw.slice(0, 200)}`,
@@ -1618,7 +1621,10 @@ async function runTerminalWarmup(chatJid: string): Promise<void> {
           typeof result.result === 'string'
             ? result.result
             : JSON.stringify(result.result);
-        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        const text = raw
+          .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+          .replace(/<process>[\s\S]*?<\/process>/g, '')
+          .trim();
         if (!text || text === warmupReadyToken) return;
         await sendMessage(chatJid, text);
         resetIdleTimer();
@@ -2624,7 +2630,10 @@ async function processAgentConversation(chatJid: string, agentId: string): Promi
     // Agent reply
     if (output.result) {
       const raw = typeof output.result === 'string' ? output.result : JSON.stringify(output.result);
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      const text = raw
+        .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+        .replace(/<process>[\s\S]*?<\/process>/g, '')
+        .trim();
       if (text) {
         const msgId = crypto.randomUUID();
         lastAgentReplyMsgId = msgId;
