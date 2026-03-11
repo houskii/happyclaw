@@ -573,9 +573,75 @@ function waitForIpcMessage(): Promise<{ text: string; images?: Array<{ data: str
   });
 }
 
+// Memory Agent mode: read index.md from the memory-index mount
+const WORKSPACE_MEMORY_INDEX = process.env.HAPPYCLAW_WORKSPACE_MEMORY_INDEX || '/workspace/memory-index';
+const MEMORY_MODE = process.env.HAPPYCLAW_MEMORY_MODE || 'legacy';
+
+function readMemoryIndex(): string {
+  const indexPath = path.join(WORKSPACE_MEMORY_INDEX, 'index.md');
+  try {
+    if (fs.existsSync(indexPath)) {
+      return fs.readFileSync(indexPath, 'utf-8');
+    }
+  } catch { /* ignore read errors */ }
+  return '';
+}
+
+function readPersonality(): string {
+  const personalityPath = path.join(WORKSPACE_MEMORY_INDEX, 'personality.md');
+  try {
+    if (fs.existsSync(personalityPath)) {
+      return fs.readFileSync(personalityPath, 'utf-8');
+    }
+  } catch { /* ignore read errors */ }
+  return '';
+}
+
 function buildMemoryRecallPrompt(isHome: boolean, isAdminHome: boolean): string {
+  // New Memory Agent mode: inject index.md + agent-based memory tools
+  if (MEMORY_MODE === 'agent' && isHome) {
+    const indexContent = readMemoryIndex();
+    const parts = [
+      '',
+      '## 记忆系统',
+      '',
+    ];
+
+    if (indexContent) {
+      parts.push(
+        '你的随身索引已加载：',
+        '',
+        '<memory-index>',
+        indexContent,
+        '</memory-index>',
+        '',
+      );
+    }
+
+    const personalityContent = readPersonality();
+    if (personalityContent) {
+      parts.push(
+        '你对这位用户交互风格的观察记录：',
+        '',
+        '<personality-notes>',
+        personalityContent,
+        '</personality-notes>',
+        '',
+      );
+    }
+
+    parts.push(
+      '- 需要回忆过去的对话、查找用户信息、确认某件事 → `memory_query`',
+      '- 用户说「记住」或发现重要信息 → `memory_remember`',
+      '- 不要自己修改记忆文件，记忆由专门的系统管理',
+      '',
+      'memory_query 可能需要几秒钟。查询时可以先告诉用户「让我想想……」。',
+    );
+    return parts.join('\n');
+  }
+
   if (isHome) {
-    // Home container (admin or member): full memory system with read/write access to user's global CLAUDE.md
+    // Legacy mode: Home container (admin or member): full memory system with read/write access to user's global CLAUDE.md
     return [
       '',
       '## 记忆系统',

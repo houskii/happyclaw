@@ -1253,5 +1253,123 @@ Use the skills panel in the UI to find the skill ID (directory name, e.g. "memor
     ),
   );
 
+  // --- Memory Agent tools (only when memoryMode === 'agent') ---
+  const MEMORY_MODE = process.env.HAPPYCLAW_MEMORY_MODE || 'legacy';
+  const API_URL = process.env.HAPPYCLAW_API_URL || 'http://localhost:3000';
+  const API_TOKEN = process.env.HAPPYCLAW_INTERNAL_TOKEN || '';
+
+  if (MEMORY_MODE === 'agent' && ctx.userId) {
+    /** Shared HTTP helper for Memory Agent endpoints */
+    async function callMemoryAgent(
+      endpoint: string,
+      body: object,
+    ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; status: number; errorMsg: string }> {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35000);
+      try {
+        const res = await fetch(`${API_URL}/api/internal/memory${endpoint}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${API_TOKEN}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          const status = res.status;
+          let errorMsg = '记忆系统暂时不可用';
+          if (status === 408) errorMsg = '记忆系统处理超时，你可以直接告诉我相关信息';
+          else if (status === 502) errorMsg = '记忆系统出了点问题，不过不影响我们继续聊';
+          else if (status === 503) errorMsg = '上一个记忆查询还在处理中，稍等一下';
+          return { ok: false, status, errorMsg };
+        }
+
+        const data = await res.json();
+        return { ok: true, data };
+      } catch (err) {
+        clearTimeout(timeout);
+        const errorMsg =
+          err instanceof Error && err.name === 'AbortError'
+            ? '记忆查询超时'
+            : '无法连接记忆系统';
+        return { ok: false, status: 0, errorMsg };
+      }
+    }
+
+    tools.push(
+      // --- memory_query ---
+      tool(
+        'memory_query',
+        '向记忆系统查询。可以问关于过去对话、用户信息、项目知识的任何问题。查询可能需要几秒钟。',
+        {
+          query: z.string().describe('查询内容'),
+          context: z
+            .string()
+            .optional()
+            .describe('当前对话的简要上下文，帮助记忆系统更准确地搜索'),
+        },
+        async (args) => {
+          const result = await callMemoryAgent('/query', {
+            userId: ctx.userId,
+            query: args.query,
+            context: args.context,
+          });
+
+          if (!result.ok) {
+            return {
+              content: [{ type: 'text' as const, text: result.errorMsg }],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: (result.data.response as string) || '没有找到相关记忆。',
+              },
+            ],
+          };
+        },
+      ),
+
+      // --- memory_remember ---
+      tool(
+        'memory_remember',
+        '告诉记忆系统记住某条信息。用户说「记住」或发现重要信息时使用。',
+        {
+          content: z.string().describe('需要记住的内容'),
+          importance: z
+            .enum(['high', 'normal'])
+            .optional()
+            .describe('重要性级别，默认 normal'),
+        },
+        async (args) => {
+          const result = await callMemoryAgent('/remember', {
+            userId: ctx.userId,
+            content: args.content,
+            importance: args.importance || 'normal',
+          });
+
+          if (!result.ok) {
+            return {
+              content: [{ type: 'text' as const, text: result.errorMsg }],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [
+              { type: 'text' as const, text: '已通知记忆系统。' },
+            ],
+          };
+        },
+      ),
+    );
+  }
+
   return tools;
 }

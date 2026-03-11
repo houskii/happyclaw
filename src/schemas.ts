@@ -548,7 +548,7 @@ export const RedeemCodeSchema = z.object({
 export interface MemorySource {
   path: string;
   label: string;
-  scope: 'user-global' | 'main' | 'flow' | 'session';
+  scope: 'user-global' | 'agent-memory' | 'main' | 'flow' | 'session';
   kind: 'claude' | 'note' | 'session';
   writable: boolean;
   exists: boolean;

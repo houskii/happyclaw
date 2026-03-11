@@ -23,11 +23,13 @@ import {
   getClaudeProviderConfig,
   getContainerEnvConfig,
   getSystemSettings,
+  getUserMemoryMode,
   mergeClaudeEnvConfig,
   shellQuoteEnvLines,
   writeCredentialsFile,
 } from './runtime-config.js';
 import { resolveGroupMcpServers } from './mcp-utils.js';
+import { getInternalToken } from './routes/memory-agent.js';
 import { RegisteredGroup, StreamEvent } from './types.js';
 import {
   attachStderrHandler,
@@ -320,6 +322,28 @@ function buildVolumeMounts(
   const globalConfig = getClaudeProviderConfig();
   const containerOverride = getContainerEnvConfig(group.folder);
   const envLines = buildContainerEnvLines(globalConfig, containerOverride);
+
+  // Memory Agent mode env vars (for Docker containers)
+  if (ownerId) {
+    const memoryMode = getUserMemoryMode(ownerId);
+    envLines.push(`HAPPYCLAW_MEMORY_MODE=${memoryMode}`);
+    if (memoryMode === 'agent') {
+      const token = getInternalToken();
+      if (token) envLines.push(`HAPPYCLAW_INTERNAL_TOKEN=${token}`);
+      // Docker containers use host.docker.internal to reach the host
+      envLines.push(`HAPPYCLAW_API_URL=http://host.docker.internal:${process.env.WEB_PORT || '3000'}`);
+
+      // Mount memory directory as read-only for index.md injection
+      const memoryIndexDir = path.join(DATA_DIR, 'memory', ownerId);
+      mkdirForContainer(memoryIndexDir);
+      mounts.push({
+        hostPath: memoryIndexDir,
+        containerPath: '/workspace/memory-index',
+        readonly: true,
+      });
+    }
+  }
+
   if (envLines.length > 0) {
     const envFilePath = path.join(envDir, 'env');
     const quotedLines = shellQuoteEnvLines(envLines);
@@ -921,6 +945,19 @@ export async function runHostAgent(
   );
   hostEnv['HAPPYCLAW_WORKSPACE_IPC'] = groupIpcDir;
   hostEnv['CLAUDE_CONFIG_DIR'] = groupSessionsDir;
+
+  // Memory Agent mode env vars
+  if (ownerId) {
+    const memoryMode = getUserMemoryMode(ownerId);
+    hostEnv['HAPPYCLAW_MEMORY_MODE'] = memoryMode;
+    if (memoryMode === 'agent') {
+      const token = getInternalToken();
+      if (token) hostEnv['HAPPYCLAW_INTERNAL_TOKEN'] = token;
+      hostEnv['HAPPYCLAW_API_URL'] = `http://localhost:${process.env.WEB_PORT || '3000'}`;
+      hostEnv['HAPPYCLAW_WORKSPACE_MEMORY_INDEX'] = path.join(DATA_DIR, 'memory', ownerId);
+    }
+  }
+
   // 让 SDK 捕获 CLI 的 stderr 输出，便于排查启动失败
   hostEnv['DEBUG_CLAUDE_AGENT_SDK'] = '1';
   // CLI 禁止 root 用户使用 --dangerously-skip-permissions，

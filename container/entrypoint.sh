@@ -11,7 +11,7 @@ umask 0000
 # rootless podman where uid remapping causes EACCES on bind mounts.
 # Running as root here so chown works regardless of host uid.
 chown -R node:node /home/node/.claude 2>/dev/null || true
-chown -R node:node /workspace/group /workspace/global /workspace/memory /workspace/ipc 2>/dev/null || true
+chown -R node:node /workspace/group /workspace/global /workspace/memory /workspace/ipc /workspace/memory-index 2>/dev/null || true
 
 # Source environment variables from mounted env file
 if [ -f /workspace/env-dir/env ]; then

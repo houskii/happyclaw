@@ -9,7 +9,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 interface MemorySource {
   path: string;
   label: string;
-  scope: 'user-global' | 'main' | 'flow' | 'session';
+  scope: 'user-global' | 'agent-memory' | 'main' | 'flow' | 'session';
   kind: 'claude' | 'note' | 'session';
   writable: boolean;
   exists: boolean;
@@ -43,6 +43,8 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 function scopeLabel(scope: MemorySource['scope']): string {
   switch (scope) {
+    case 'agent-memory':
+      return 'AI 记忆系统';
     case 'user-global':
       return '我的全局记忆';
     case 'main':
@@ -88,6 +90,7 @@ export function MemoryPage() {
 
   const groupedSources = useMemo(() => {
     const groups: Record<MemorySource['scope'], MemorySource[]> = {
+      'agent-memory': [],
       'user-global': [],
       main: [],
       flow: [],
@@ -277,7 +280,7 @@ export function MemoryPage() {
             </div>
 
             <div className="space-y-4 max-h-[calc(100dvh-280px)] lg:max-h-[560px] overflow-auto pr-1">
-              {(['user-global', 'main', 'flow', 'session'] as const).map((scope) => {
+              {(['agent-memory', 'user-global', 'main', 'flow', 'session'] as const).map((scope) => {
                 const items = groupedSources[scope];
                 if (items.length === 0) return null;
                 return (

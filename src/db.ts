@@ -1705,6 +1705,32 @@ export function getMessagesSince(
     ) as NewMessage[];
 }
 
+/**
+ * Get ALL messages (both user and agent) since a cursor for transcript export.
+ * Unlike getMessagesSince, this includes is_from_me messages.
+ */
+export function getTranscriptMessagesSince(
+  chatJid: string,
+  cursor: MessageCursor,
+): Array<NewMessage & { is_from_me: boolean }> {
+  const sql = `
+    SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, attachments, is_from_me
+    FROM messages
+    WHERE
+      chat_jid = ?
+      AND (timestamp > ? OR (timestamp = ? AND id > ?))
+    ORDER BY timestamp ASC, id ASC
+  `;
+  return db
+    .prepare(sql)
+    .all(
+      chatJid,
+      cursor.timestamp,
+      cursor.timestamp,
+      cursor.id,
+    ) as Array<NewMessage & { is_from_me: boolean }>;
+}
+
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {
