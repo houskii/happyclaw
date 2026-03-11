@@ -25,6 +25,7 @@ import {
   FeishuConfigSchema,
   TelegramConfigSchema,
   QQConfigSchema,
+  MemoryModeSchema,
   RegistrationConfigSchema,
   AppearanceConfigSchema,
   SystemSettingsSchema,
@@ -64,6 +65,8 @@ import {
   saveUserTelegramConfig,
   getUserQQConfig,
   saveUserQQConfig,
+  getUserMemoryMode,
+  saveUserMemoryMode,
   updateAllSessionCredentials,
   detectLocalClaudeCode,
   importLocalClaudeCredentials,
@@ -2021,6 +2024,38 @@ configRoutes.put('/user-im/bindings/:imJid', authMiddleware, async (c) => {
   }
 
   return c.json({ error: 'Must provide target_main_jid, target_agent_id, or unbind' }, 400);
+});
+
+// ─── Per-user memory mode ──────────────────────────────────────────
+
+configRoutes.get('/user-im/memory', authMiddleware, (c) => {
+  const user = c.get('user') as AuthUser;
+  try {
+    const mode = getUserMemoryMode(user.id);
+    return c.json({ memoryMode: mode });
+  } catch (err) {
+    logger.warn({ err, userId: user.id }, 'Failed to read memory mode');
+    return c.json({ memoryMode: 'legacy' });
+  }
+});
+
+configRoutes.put('/user-im/memory', authMiddleware, async (c) => {
+  const user = c.get('user') as AuthUser;
+  const body = await c.req.json().catch(() => ({}));
+  const validation = MemoryModeSchema.safeParse(body);
+  if (!validation.success) {
+    return c.json(
+      { error: 'Invalid request', details: validation.error.issues },
+      400,
+    );
+  }
+  try {
+    saveUserMemoryMode(user.id, validation.data.memoryMode);
+    return c.json({ memoryMode: validation.data.memoryMode });
+  } catch (err) {
+    logger.warn({ err, userId: user.id }, 'Failed to save memory mode');
+    return c.json({ error: 'Failed to save memory mode' }, 500);
+  }
 });
 
 // ─── Local Claude Code detection ──────────────────────────────────

@@ -212,6 +212,7 @@ async function runTask(
         isHome,
         isAdminHome,
         isScheduledTask: true,
+        userId: group.created_by,
       },
       (proc, identifier) =>
         deps.onProcess(

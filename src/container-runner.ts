@@ -104,6 +104,7 @@ export interface ContainerInput {
   images?: Array<{ data: string; mimeType?: string }>;
   agentId?: string;
   agentName?: string;
+  userId?: string;
 }
 
 export interface ContainerOutput {

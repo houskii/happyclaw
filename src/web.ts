@@ -1348,7 +1348,7 @@ export function startWebServer(webDeps: WebDeps): void {
   wss = setupWebSocket(httpServer);
 
   // Register container exit callback for terminal cleanup
-  webDeps.queue.setOnContainerExit((groupJid: string) => {
+  webDeps.queue.addOnContainerExitListener((groupJid: string) => {
     if (terminalManager.has(groupJid)) {
       const ownerWs = terminalOwners.get(groupJid);
       terminalManager.stop(groupJid);

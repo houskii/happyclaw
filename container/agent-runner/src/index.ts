@@ -1083,6 +1083,7 @@ async function main(): Promise<void> {
     workspaceGroup: WORKSPACE_GROUP,
     workspaceGlobal: WORKSPACE_GLOBAL,
     workspaceMemory: WORKSPACE_MEMORY,
+    userId: containerInput.userId,
   };
   const buildMcpServerConfig = () => createSdkMcpServer({
     name: 'happyclaw',

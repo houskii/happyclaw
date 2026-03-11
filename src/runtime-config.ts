@@ -2513,6 +2513,36 @@ export function saveUserQQConfig(
   return normalized;
 }
 
+// ─── Per-user memory mode (plain JSON, no encryption) ──────────────
+
+export type MemoryMode = 'legacy' | 'agent';
+
+export function getUserMemoryMode(userId: string): MemoryMode {
+  const filePath = path.join(userImDir(userId), 'memory.json');
+  try {
+    if (!fs.existsSync(filePath)) return 'legacy';
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (parsed.memoryMode === 'agent') return 'agent';
+    return 'legacy';
+  } catch {
+    return 'legacy';
+  }
+}
+
+export function saveUserMemoryMode(userId: string, mode: MemoryMode): void {
+  const dir = userImDir(userId);
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, 'memory.json');
+  const tmp = `${filePath}.tmp`;
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify({ memoryMode: mode }, null, 2) + '\n',
+    'utf-8',
+  );
+  fs.renameSync(tmp, filePath);
+}
+
 // ─── System settings (plain JSON, no encryption) ─────────────────
 
 const SYSTEM_SETTINGS_FILE = path.join(

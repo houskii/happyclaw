@@ -25,6 +25,7 @@ export interface McpContext {
   workspaceGroup: string;
   workspaceGlobal: string;
   workspaceMemory: string;
+  userId?: string;
 }
 
 function writeIpcFile(dir: string, data: object): string {

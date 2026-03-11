@@ -413,6 +413,10 @@ export const QQConfigSchema = z
     { message: 'At least one config field must be provided' },
   );
 
+export const MemoryModeSchema = z.object({
+  memoryMode: z.enum(['legacy', 'agent']),
+});
+
 export const ClaudeCustomEnvSchema = z.object({
   customEnv: z.record(z.string().max(256), z.string().max(4096)),
 });

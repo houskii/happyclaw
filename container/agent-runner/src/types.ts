@@ -23,6 +23,8 @@ export interface ContainerInput {
   images?: Array<{ data: string; mimeType?: string }>;
   agentId?: string;
   agentName?: string;
+  /** Owner user ID. Used by memory tools to identify the user. */
+  userId?: string;
 }
 
 export interface ContainerOutput {
