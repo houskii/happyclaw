@@ -79,7 +79,7 @@ import {
 } from './db.js';
 // feishu.js deprecated exports are no longer needed; imManager handles all connections
 import { imManager } from './im-manager.js';
-import { getChannelType } from './im-channel.js';
+import { getChannelType, extractChatId } from './im-channel.js';
 import {
   registerStreamingSession,
   unregisterStreamingSession,
@@ -1431,8 +1431,12 @@ function formatMessages(messages: NewMessage[], isShared = false): string {
   const lines = messages.map((m) => {
     const content = isShared ? `[${m.sender_name}] ${m.content}` : m.content;
     const sourceJid = m.source_jid || m.chat_jid;
-    const sourceGroup = getChannelType(sourceJid) ? getRegisteredGroup(sourceJid) : null;
-    const sourceAttr = sourceGroup?.name ? ` source="${escapeXml(sourceGroup.name)}"` : '';
+    const channelType = getChannelType(sourceJid);
+    let sourceAttr = '';
+    if (channelType) {
+      const chatId = extractChatId(sourceJid);
+      sourceAttr = ` source="${escapeXml(channelType)}:${escapeXml(chatId)}"`;
+    }
     return `<message sender="${escapeXml(m.sender_name)}"${sourceAttr} time="${m.timestamp}">${escapeXml(content)}</message>`;
   });
   return `<messages>\n${lines.join('\n')}\n</messages>`;
