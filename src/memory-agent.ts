@@ -887,7 +887,7 @@ function getLocalHour(timestampMs: number): number {
  *
  * Conditions per user:
  *   1. memoryMode === 'agent'
- *   2. lastGlobalSleep > 20 hours ago (or never)
+ *   2. lastGlobalSleep > 6 hours ago (or never)
  *   3. No active sessions for this user
  *   4. Has pending wrapups (session_wrapup triggered since last global_sleep)
  */
@@ -921,12 +921,12 @@ export function runMemoryGlobalSleepIfNeeded(deps: GlobalSleepDeps): void {
 
       const state = readMemoryState(user.id);
 
-      // 2. lastGlobalSleep > 20 hours ago (or never run)
+      // 2. lastGlobalSleep > 6 hours ago (or never run)
       const lastSleep = state.lastGlobalSleep as string | null;
       if (lastSleep) {
         const hoursSince =
           (now - new Date(lastSleep).getTime()) / (1000 * 60 * 60);
-        if (hoursSince < 20) continue;
+        if (hoursSince < 6) continue;
       }
 
       // 3. No active sessions for this user

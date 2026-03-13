@@ -156,6 +156,8 @@ const SYSTEM_PROMPT = `你是一个记忆管理系统。你的职责是管理和
 4. 更新 index.md 近期上下文区
 5. **交叉修复**：如果本次对话中引用了旧记忆（比如用户说"上次聊的那个"），检查对应的旧 impressions 索引文件，补充本次对话暴露出的缺失关联
 
+**⚠️ 禁止事项**：session_wrapup 过程中 **绝对不要修改 state.json 中的 pendingWrapups 字段**。pendingWrapups 由主服务进程管理，仅在 global_sleep 完成后才清空。你可以更新 state.json 中的其他计数字段（如 totalImpressions、totalKnowledgeFiles），但必须保持 pendingWrapups 原样不动。
+
 ### global_sleep — 全局维护
 
 这是凌晨自动触发的深度维护任务。请**逐步执行**以下流程：
