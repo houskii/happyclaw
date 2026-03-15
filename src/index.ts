@@ -491,6 +491,47 @@ const activeRouteUpdaters = new Map<string, ReplyRouteUpdater>();
 // outputs to the correct IM channel (the running session holds the truth).
 const activeImReplyRoutes = new Map<string, string | null>();
 
+// IPC delivery watchdog: track piped messages awaiting agent acknowledgement.
+// agent-runner emits a status stream_event "ipc_message_received" once an
+// injected IPC message has been consumed. If no ack arrives in time, log a
+// warning so swallowed IPC messages are diagnosable from host logs.
+const IPC_DELIVERY_TIMEOUT_MS = 120_000;
+const pendingIpcDeliveries = new Map<
+  string,
+  { timestamp: number; timer: ReturnType<typeof setTimeout> }
+>();
+
+function trackIpcDelivery(chatJid: string): void {
+  const existing = pendingIpcDeliveries.get(chatJid);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    pendingIpcDeliveries.delete(chatJid);
+    logger.warn(
+      { chatJid, timeoutMs: IPC_DELIVERY_TIMEOUT_MS },
+      'IPC message not acknowledged by agent — possible SDK hang or dropped query',
+    );
+  }, IPC_DELIVERY_TIMEOUT_MS);
+  pendingIpcDeliveries.set(chatJid, { timestamp: Date.now(), timer });
+}
+
+function ackIpcDelivery(chatJid: string): void {
+  const pending = pendingIpcDeliveries.get(chatJid);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingIpcDeliveries.delete(chatJid);
+  logger.info(
+    { chatJid, latencyMs: Date.now() - pending.timestamp },
+    'IPC delivery acknowledged by agent',
+  );
+}
+
+function clearIpcDeliveryTracker(chatJid: string): void {
+  const pending = pendingIpcDeliveries.get(chatJid);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingIpcDeliveries.delete(chatJid);
+}
+
 // Track consecutive IM send failures per JID for auto-unbind
 const imSendFailCounts = new Map<string, number>();
 const IM_SEND_FAIL_THRESHOLD = 3;
@@ -2418,6 +2459,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           if (result.status === 'stream' && result.streamEvent) {
             broadcastStreamEvent(chatJid, result.streamEvent);
 
+            if (
+              result.streamEvent.eventType === 'status' &&
+              result.streamEvent.statusText === 'ipc_message_received'
+            ) {
+              ackIpcDelivery(chatJid);
+            }
+
             // ── 累积 text_delta / thinking_delta 文本（中断时用于保存已输出内容）──
             if (
               result.streamEvent.eventType === 'text_delta' &&
@@ -2939,6 +2987,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     // where the normal sendMessage (which clears it) is never called.
     imManager.clearAckReaction(chatJid);
     if (idleTimer) clearTimeout(idleTimer);
+    clearIpcDeliveryTracker(chatJid);
     activeRouteUpdaters.delete(effectiveGroup.folder);
     activeImReplyRoutes.delete(effectiveGroup.folder);
 
@@ -5893,14 +5942,15 @@ async function startMessageLoop(): Promise<void> {
             },
           );
           if (sendResult === 'sent') {
-            logger.debug(
+            logger.info(
               {
                 chatJid,
                 count: messagesToSend.length,
                 imageCount: images.length,
               },
-              'Piped messages to active container',
+              'Piped messages to active container via IPC',
             );
+            trackIpcDelivery(chatJid);
             const lastProcessed = messagesToSend[messagesToSend.length - 1];
             lastAgentTimestamp[chatJid] = {
               timestamp: lastProcessed.timestamp,
@@ -6964,7 +7014,7 @@ async function main(): Promise<void> {
     }
     if (!userId) return;
 
-    const memoryMode = getUserMemoryMode(group.created_by);
+    const memoryMode = getUserMemoryMode(userId);
     if (memoryMode !== 'agent') return;
 
     const allJids = getJidsByFolder(group.folder);
