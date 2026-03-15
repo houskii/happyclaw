@@ -549,6 +549,9 @@ function waitForIpcMessage(): Promise<{ text: string; images?: Array<{ data: str
         // 合并多条消息的文本和图片
         const combinedText = messages.map((m) => m.text).join('\n');
         const allImages = messages.flatMap((m) => m.images || []);
+        log(`Idle IPC pickup: ${messages.length} message(s), ${combinedText.length} chars`);
+        // Emit acknowledgement so host can track IPC delivery (mirrors pollIpcDuringQuery)
+        writeOutput({ status: 'stream', result: null, streamEvent: { eventType: 'status', statusText: 'ipc_message_received' } });
         resolve({ text: combinedText, images: allImages.length > 0 ? allImages : undefined });
         return;
       }
