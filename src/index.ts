@@ -168,6 +168,47 @@ const queue = new GroupQueue();
 const EMPTY_CURSOR: MessageCursor = { timestamp: '', id: '' };
 const terminalWarmupInFlight = new Set<string>();
 
+// IPC delivery watchdog: track piped messages awaiting agent acknowledgement.
+// When the agent-runner consumes an IPC message it emits a status stream_event
+// "ipc_message_received".  If no ack arrives within IPC_DELIVERY_TIMEOUT_MS the
+// host logs a warning — this helped us diagnose the "swallowed message" bug
+// where the SDK silently dropped an IPC-injected query.
+const IPC_DELIVERY_TIMEOUT_MS = 120_000;
+const pendingIpcDeliveries = new Map<
+  string,
+  { timestamp: number; timer: ReturnType<typeof setTimeout> }
+>();
+function trackIpcDelivery(chatJid: string): void {
+  const existing = pendingIpcDeliveries.get(chatJid);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    pendingIpcDeliveries.delete(chatJid);
+    logger.warn(
+      { chatJid, timeoutMs: IPC_DELIVERY_TIMEOUT_MS },
+      'IPC message not acknowledged by agent — possible SDK hang or dropped query',
+    );
+  }, IPC_DELIVERY_TIMEOUT_MS);
+  pendingIpcDeliveries.set(chatJid, { timestamp: Date.now(), timer });
+}
+function ackIpcDelivery(chatJid: string): void {
+  const pending = pendingIpcDeliveries.get(chatJid);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingIpcDeliveries.delete(chatJid);
+    logger.info(
+      { chatJid, latencyMs: Date.now() - pending.timestamp },
+      'IPC delivery acknowledged by agent',
+    );
+  }
+}
+function clearIpcDeliveryTracker(chatJid: string): void {
+  const pending = pendingIpcDeliveries.get(chatJid);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingIpcDeliveries.delete(chatJid);
+  }
+}
+
 // Track consecutive IM send failures per JID for auto-unbind
 const imSendFailCounts = new Map<string, number>();
 const IM_SEND_FAIL_THRESHOLD = 3;
@@ -1579,8 +1620,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         if (result.status === 'stream' && result.streamEvent) {
           broadcastStreamEvent(chatJid, result.streamEvent);
 
-          // Persist SDK Task lifecycle to DB so tabs survive page refresh
+          // IPC delivery acknowledgement from agent-runner
           const se = result.streamEvent;
+          if (
+            se.eventType === 'status' &&
+            se.statusText === 'ipc_message_received'
+          ) {
+            ackIpcDelivery(chatJid);
+          }
+
+          // Persist SDK Task lifecycle to DB so tabs survive page refresh
           if (
             (se.eventType === 'task_start' && se.toolUseId) ||
             (se.eventType === 'tool_use_start' &&
@@ -1839,6 +1888,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   await setTyping(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
+  clearIpcDeliveryTracker(chatJid);
 
   // 不可恢复的转录错误（如超大图片/MIME 错配被固化在会话历史中）：无论是否已有回复，都必须重置会话
   const errorForReset = [lastError, output.error].filter(Boolean).join(' ');
@@ -3520,14 +3570,15 @@ async function startMessageLoop(): Promise<void> {
             intent,
           );
           if (sendResult === 'sent') {
-            logger.debug(
+            logger.info(
               {
                 chatJid,
                 count: messagesToSend.length,
                 imageCount: images.length,
               },
-              'Piped messages to active container',
+              'Piped messages to active container via IPC',
             );
+            trackIpcDelivery(chatJid);
             const lastProcessed = messagesToSend[messagesToSend.length - 1];
             lastAgentTimestamp[chatJid] = {
               timestamp: lastProcessed.timestamp,

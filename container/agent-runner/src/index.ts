@@ -722,6 +722,8 @@ async function runQuery(
     }
     for (const msg of messages) {
       log(`Piping IPC message into active query (${msg.text.length} chars, ${msg.images?.length || 0} images)`);
+      // Emit acknowledgement so host can track IPC delivery
+      emit({ status: 'stream', result: null, streamEvent: { eventType: 'status', statusText: 'ipc_message_received' } });
       const rejected = stream.push(msg.text, msg.images);
       for (const reason of rejected) {
         emit({ status: 'success', result: `\u26a0\ufe0f ${reason}`, newSessionId: undefined });
