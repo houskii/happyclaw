@@ -565,3 +565,21 @@ export interface MemorySearchHit extends MemorySource {
   hits: number;
   snippet: string;
 }
+
+// --- Bug Report schemas ---
+
+// 单张截图上限 5MB（base64 编码后约 6.67MB）
+const MAX_SCREENSHOT_BASE64_LENGTH = (5 * 1024 * 1024 * 4) / 3;
+
+export const BugReportGenerateSchema = z.object({
+  description: z.string().min(1).max(5000),
+  screenshots: z
+    .array(z.string().max(MAX_SCREENSHOT_BASE64_LENGTH))
+    .max(3)
+    .optional(),
+});
+
+export const BugReportSubmitSchema = z.object({
+  title: z.string().min(1).max(256),
+  body: z.string().min(1).max(65536),
+});

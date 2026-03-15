@@ -50,6 +50,7 @@ import mcpServersRoutes from './routes/mcp-servers.js';
 import agentDefinitionsRoutes from './routes/agent-definitions.js';
 import { usage as usageRoutes } from './routes/usage.js';
 import billingRoutes from './routes/billing.js';
+import bugReportRoutes from './routes/bug-report.js';
 import {
   checkBillingAccess,
   formatBillingAccessDeniedMessage,
@@ -171,6 +172,7 @@ app.route('/api/groups', agentRoutes); // Agent routes under /api/groups/:jid/ag
 app.route('/api', monitorRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/billing', billingRoutes);
+app.route('/api/bug-report', bugReportRoutes);
 
 // --- POST /api/messages ---
 

@@ -75,11 +75,29 @@ function computeNextRun(task: ScheduledTask): string | null {
   return null;
 }
 
+/**
+ * Re-check DB before running — task may have been cancelled/paused while queued.
+ * Returns true if the task is still active and should proceed.
+ */
+function isTaskStillActive(taskId: string, label?: string): boolean {
+  const currentTask = getTaskById(taskId);
+  if (!currentTask || currentTask.status !== 'active') {
+    logger.info(
+      { taskId },
+      `Skipping ${label ?? 'task'}: deleted or no longer active since enqueue`,
+    );
+    return false;
+  }
+  return true;
+}
+
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
   groupJid: string,
 ): Promise<void> {
+  if (!isTaskStillActive(task.id, 'task')) return;
+
   runningTaskIds.add(task.id);
   const startTime = Date.now();
   const groupDir = path.join(GROUPS_DIR, task.group_folder);
@@ -284,6 +302,8 @@ async function runScriptTask(
   deps: SchedulerDependencies,
   groupJid: string,
 ): Promise<void> {
+  if (!isTaskStillActive(task.id, 'script task')) return;
+
   runningTaskIds.add(task.id);
   const startTime = Date.now();
 

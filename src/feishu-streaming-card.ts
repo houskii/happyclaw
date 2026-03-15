@@ -2,12 +2,17 @@
  * Feishu Streaming Card Controller
  *
  * Implements CardKit 2.0 streaming cards with typing-machine effect.
- * Uses im.message.patch API to update card content in real-time.
+ * Primary path: CardKit card.create + card.update (with sequence-based optimistic locking).
+ * Fallback path: im.message.create + im.message.patch (original behavior).
  *
- * Rate limiting: Feishu patch API has ~1000ms minimum interval.
- * Text change threshold: skip patches if delta < 50 chars (reduce noise).
+ * Features:
+ * - Code-block-safe text splitting (no truncation inside fenced code blocks)
+ * - Schema 2.0 card format with body.elements
+ * - Multi-card support for extremely long outputs (auto-split at ~45 elements)
+ * - Automatic fallback to message.patch if CardKit API is unavailable
  */
 import * as lark from '@larksuiteoapi/node-sdk';
+import { createHash } from 'crypto';
 import { logger } from './logger.js';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -29,11 +34,121 @@ export interface StreamingCardOptions {
   replyToMsgId?: string;
   /** Called when the card is created or streaming fails */
   onFallback?: () => void;
+  /** Called when the initial card is created and messageId is available */
+  onCardCreated?: (messageId: string) => void;
 }
 
-// ─── Card Template Builders ───────────────────────────────────
+// ─── Code-Block-Safe Splitting ───────────────────────────────
+
+interface CodeBlockRange {
+  open: number;
+  close: number;
+  lang: string;
+}
+
+/**
+ * Scan text for fenced code block ranges (``` ... ```).
+ */
+function findCodeBlockRanges(text: string): CodeBlockRange[] {
+  const ranges: CodeBlockRange[] = [];
+  const regex = /^```(\w*)\s*$/gm;
+  let match: RegExpExecArray | null;
+  let openMatch: RegExpExecArray | null = null;
+  let openLang = '';
+
+  while ((match = regex.exec(text)) !== null) {
+    if (!openMatch) {
+      openMatch = match;
+      openLang = match[1] || '';
+    } else {
+      ranges.push({
+        open: openMatch.index,
+        close: match.index + match[0].length,
+        lang: openLang,
+      });
+      openMatch = null;
+      openLang = '';
+    }
+  }
+
+  // Unclosed code block — treat from open to end of text
+  if (openMatch) {
+    ranges.push({
+      open: openMatch.index,
+      close: text.length,
+      lang: openLang,
+    });
+  }
+
+  return ranges;
+}
+
+/**
+ * Check if a position falls inside any code block range.
+ * Returns the range if found, null otherwise.
+ */
+function findContainingBlock(
+  pos: number,
+  ranges: CodeBlockRange[],
+): CodeBlockRange | null {
+  for (const r of ranges) {
+    if (pos > r.open && pos < r.close) return r;
+  }
+  return null;
+}
+
+/**
+ * Split text respecting fenced code block boundaries.
+ * Unlike splitAtParagraphs(), this never truncates inside a code block
+ * without properly closing/reopening the fence.
+ */
+function splitCodeBlockSafe(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > maxLen) {
+    // Recompute ranges on current remaining text each iteration.
+    // This handles synthetic reopeners correctly since all positions
+    // are relative to `remaining`, not the original text.
+    const ranges = findCodeBlockRanges(remaining);
+
+    // Find a split point around maxLen
+    let idx = remaining.lastIndexOf('\n\n', maxLen);
+    if (idx < maxLen * 0.3) idx = remaining.lastIndexOf('\n', maxLen);
+    if (idx < maxLen * 0.3) idx = maxLen;
+
+    const block = findContainingBlock(idx, ranges);
+
+    if (block) {
+      // Split point is inside a code block
+      if (block.open > 0 && block.open > maxLen * 0.3) {
+        // Retreat to just before the code block opening
+        const retreatIdx = remaining.lastIndexOf('\n', block.open);
+        idx = retreatIdx > maxLen * 0.3 ? retreatIdx : block.open;
+        chunks.push(remaining.slice(0, idx).trimEnd());
+        remaining = remaining.slice(idx).replace(/^\n+/, '');
+      } else {
+        // Block starts too early to retreat — split inside but close/reopen fence
+        const chunk = remaining.slice(0, idx).trimEnd() + '\n```';
+        chunks.push(chunk);
+        const reopener = '```' + block.lang + '\n';
+        remaining = reopener + remaining.slice(idx).replace(/^\n/, '');
+      }
+    } else {
+      chunks.push(remaining.slice(0, idx).trimEnd());
+      remaining = remaining.slice(idx).replace(/^\n+/, '');
+    }
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
 
 const CARD_MD_LIMIT = 4000;
+
+// ─── Legacy Card Builder (Fallback) ──────────────────────────
 
 function splitAtParagraphs(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
@@ -50,10 +165,7 @@ function splitAtParagraphs(text: string, maxLen: number): string[] {
   return chunks;
 }
 
-function buildStreamingCard(
-  text: string,
-  state: 'streaming' | 'completed' | 'aborted',
-): object {
+function extractTitleAndBody(text: string): { title: string; body: string } {
   const lines = text.split('\n');
   let title = '';
   let bodyStartIdx = 0;
@@ -79,13 +191,32 @@ function buildStreamingCard(
         : firstLine || 'Reply';
   }
 
-  // Build card elements
-  const elements: Array<Record<string, unknown>> = [];
+  return { title, body };
+}
+
+// ─── Shared Card Content Builder ─────────────────────────────
+
+interface CardContentResult {
+  title: string;
+  contentElements: Array<Record<string, unknown>>;
+}
+
+/**
+ * Build the content elements shared by both Legacy and Schema 2.0 card builders.
+ * Splits long text, handles `---` section dividers, and extracts the title.
+ */
+function buildCardContent(
+  text: string,
+  splitFn: (text: string, maxLen: number) => string[],
+  overrideTitle?: string,
+): CardContentResult {
+  const { title: extractedTitle, body } = extractTitleAndBody(text);
+  const title = overrideTitle || extractedTitle;
   const contentToRender = body || text.trim();
+  const elements: Array<Record<string, unknown>> = [];
 
   if (contentToRender.length > CARD_MD_LIMIT) {
-    const chunks = splitAtParagraphs(contentToRender, CARD_MD_LIMIT);
-    for (const chunk of chunks) {
+    for (const chunk of splitFn(contentToRender, CARD_MD_LIMIT)) {
       elements.push({ tag: 'markdown', content: chunk });
     }
   } else if (contentToRender) {
@@ -101,7 +232,31 @@ function buildStreamingCard(
     elements.push({ tag: 'markdown', content: text.trim() || '...' });
   }
 
-  // Status note
+  return { title, contentElements: elements };
+}
+
+// ─── Interrupt Button Element ────────────────────────────────
+
+const INTERRUPT_BUTTON = {
+  tag: 'action',
+  actions: [{
+    tag: 'button',
+    text: { tag: 'plain_text', content: '⏹ 中断回复' },
+    type: 'danger',
+    // Legacy path: card.action.trigger callback (飞书标准卡片回调机制，不依赖 CardKit)
+    // CardKit path: same value, routed via CardKit card callback
+    value: { action: 'interrupt_stream' },
+  }],
+} as const;
+
+// ─── Legacy Card Builder (Fallback) ──────────────────────────
+
+function buildStreamingCard(
+  text: string,
+  state: 'streaming' | 'completed' | 'aborted',
+): object {
+  const { title, contentElements: elements } = buildCardContent(text, splitAtParagraphs);
+
   const noteMap = {
     streaming: '⏳ 生成中...',
     completed: '',
@@ -113,12 +268,14 @@ function buildStreamingCard(
     aborted: 'orange',
   };
 
+  if (state === 'streaming') {
+    elements.push(INTERRUPT_BUTTON);
+  }
+
   if (noteMap[state]) {
     elements.push({
       tag: 'note',
-      elements: [
-        { tag: 'plain_text', content: noteMap[state] },
-      ],
+      elements: [{ tag: 'plain_text', content: noteMap[state] }],
     });
   }
 
@@ -129,6 +286,59 @@ function buildStreamingCard(
       template: headerTemplate[state],
     },
     elements,
+  };
+}
+
+// ─── Schema 2.0 Card Builder ─────────────────────────────────
+
+type Schema2State = 'streaming' | 'completed' | 'aborted' | 'frozen';
+
+const SCHEMA2_NOTE_MAP: Record<Schema2State, string> = {
+  streaming: '⏳ 生成中...',
+  completed: '',
+  aborted: '⚠️ 已中断',
+  frozen: '📎 内容已继续到下一张卡片',
+};
+
+const SCHEMA2_HEADER_MAP: Record<Schema2State, string> = {
+  streaming: 'wathet',
+  completed: 'indigo',
+  aborted: 'orange',
+  frozen: 'grey',
+};
+
+function buildSchema2Card(
+  text: string,
+  state: Schema2State,
+  titlePrefix = '',
+  overrideTitle?: string,
+): object {
+  const { title, contentElements: elements } = buildCardContent(
+    text,
+    splitCodeBlockSafe,
+    overrideTitle,
+  );
+  const displayTitle = titlePrefix ? `${titlePrefix}${title}` : title;
+
+  if (state === 'streaming') {
+    elements.push(INTERRUPT_BUTTON);
+  }
+
+  if (SCHEMA2_NOTE_MAP[state]) {
+    elements.push({
+      tag: 'note',
+      elements: [{ tag: 'plain_text', content: SCHEMA2_NOTE_MAP[state] }],
+    });
+  }
+
+  return {
+    schema: '2.0',
+    config: { wide_screen_mode: true },
+    header: {
+      title: { tag: 'plain_text', content: displayTitle },
+      template: SCHEMA2_HEADER_MAP[state],
+    },
+    body: { elements },
   };
 }
 
@@ -223,6 +433,247 @@ class FlushController {
   }
 }
 
+// ─── CardKit Backend ──────────────────────────────────────────
+
+function quickHash(data: string): string {
+  return createHash('md5').update(data).digest('hex');
+}
+
+class CardKitBackend {
+  private cardId: string | null = null;
+  private _messageId: string | null = null;
+  private sequence = 0;
+  private lastContentHash = '';
+  private readonly client: lark.Client;
+
+  constructor(client: lark.Client) {
+    this.client = client;
+  }
+
+  get messageId(): string | null {
+    return this._messageId;
+  }
+
+  /**
+   * Create a CardKit card instance.
+   * Returns the card_id for subsequent updates.
+   */
+  async createCard(cardJson: object): Promise<string> {
+    const resp = await this.client.cardkit.v1.card.create({
+      data: {
+        type: 'card_json',
+        data: JSON.stringify(cardJson),
+      },
+    });
+
+    const cardId = resp?.data?.card_id;
+    if (!cardId) {
+      throw new Error('CardKit card.create returned no card_id');
+    }
+
+    this.cardId = cardId;
+    this.sequence = 1;
+    this.lastContentHash = quickHash(JSON.stringify(cardJson));
+    logger.debug({ cardId }, 'CardKit card created');
+    return cardId;
+  }
+
+  /**
+   * Send the card as a message (referencing card_id).
+   * Returns the message_id.
+   */
+  async sendCard(
+    chatId: string,
+    replyToMsgId?: string,
+  ): Promise<string> {
+    if (!this.cardId) {
+      throw new Error('Cannot sendCard before createCard');
+    }
+
+    const content = JSON.stringify({
+      type: 'template',
+      data: { card_id: this.cardId },
+    });
+
+    let resp: any;
+    if (replyToMsgId) {
+      resp = await this.client.im.message.reply({
+        path: { message_id: replyToMsgId },
+        data: { content, msg_type: 'interactive' },
+      });
+    } else {
+      resp = await this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'interactive',
+          content,
+        },
+      });
+    }
+
+    const messageId = resp?.data?.message_id;
+    if (!messageId) {
+      throw new Error('No message_id in sendCard response');
+    }
+
+    this._messageId = messageId;
+    return messageId;
+  }
+
+  /**
+   * Update the card via CardKit card.update with sequence-based optimistic locking.
+   * Skips if content hash is unchanged.
+   */
+  async updateCard(cardJson: object): Promise<void> {
+    if (!this.cardId) return;
+
+    const dataStr = JSON.stringify(cardJson);
+    const hash = quickHash(dataStr);
+    if (hash === this.lastContentHash) return; // no change
+
+    this.sequence++;
+    await this.client.cardkit.v1.card.update({
+      path: { card_id: this.cardId },
+      data: {
+        card: { type: 'card_json', data: dataStr },
+        sequence: this.sequence,
+      },
+    });
+
+    this.lastContentHash = hash;
+  }
+
+}
+
+// ─── Multi-Card Manager ───────────────────────────────────────
+
+class MultiCardManager {
+  private cards: CardKitBackend[] = [];
+  private readonly client: lark.Client;
+  private readonly chatId: string;
+  private readonly replyToMsgId?: string;
+  private readonly onCardCreated?: (messageId: string) => void;
+  private cardIndex = 0;
+  private readonly MAX_ELEMENTS = 45; // safety margin (Feishu limit ~50)
+
+  constructor(
+    client: lark.Client,
+    chatId: string,
+    replyToMsgId?: string,
+    onCardCreated?: (messageId: string) => void,
+  ) {
+    this.client = client;
+    this.chatId = chatId;
+    this.replyToMsgId = replyToMsgId;
+    this.onCardCreated = onCardCreated;
+  }
+
+  /**
+   * Create the first card and send it as a message.
+   * Returns the initial messageId.
+   */
+  async initialize(initialText: string): Promise<string> {
+    const card = new CardKitBackend(this.client);
+    const cardJson = buildSchema2Card(initialText, 'streaming');
+    await card.createCard(cardJson);
+    const messageId = await card.sendCard(
+      this.chatId,
+      this.replyToMsgId,
+    );
+    this.cards.push(card);
+    this.cardIndex = 0;
+    return messageId;
+  }
+
+  /**
+   * Commit content: update the current card, auto-splitting if needed.
+   */
+  async commitContent(
+    text: string,
+    state: 'streaming' | 'completed' | 'aborted',
+  ): Promise<void> {
+    const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
+
+    // Estimate element count using buildCardContent for accuracy
+    const { contentElements } = buildCardContent(text, splitCodeBlockSafe);
+    const fixedCount = (state === 'streaming' ? 1 : 0)        // button
+                     + (SCHEMA2_NOTE_MAP[state] ? 1 : 0);     // note
+    const totalElements = contentElements.length + fixedCount;
+
+    if (totalElements > this.MAX_ELEMENTS && state === 'streaming') {
+      // Need to split: freeze current card and create a new one
+      await this.splitToNewCard(text);
+      return;
+    }
+
+    // Normal update on current card
+    const currentCard = this.cards[this.cards.length - 1];
+    if (!currentCard) return;
+
+    const cardJson = buildSchema2Card(text, state, titlePrefix);
+    await currentCard.updateCard(cardJson);
+  }
+
+  /**
+   * Split content across cards when element limit is reached.
+   */
+  private async splitToNewCard(text: string): Promise<void> {
+    const currentCard = this.cards[this.cards.length - 1];
+    if (!currentCard) return;
+
+    // Extract title once so all sub-cards share the same title
+    const { title: consistentTitle } = extractTitleAndBody(text);
+
+    // Determine how much content the current card can hold
+    const maxChunksPerCard = this.MAX_ELEMENTS - 3; // reserve for fixed elements
+    const chunks = splitCodeBlockSafe(text, CARD_MD_LIMIT);
+
+    // Content for the current (frozen) card
+    const frozenChunks = chunks.slice(0, maxChunksPerCard);
+    const frozenText = frozenChunks.join('\n\n');
+    const titlePrefix = this.cardIndex > 0 ? '(续) ' : '';
+
+    // Freeze current card with consistent title
+    const frozenCard = buildSchema2Card(frozenText, 'frozen', titlePrefix, consistentTitle);
+    await currentCard.updateCard(frozenCard);
+
+    // Create new card for remaining content
+    this.cardIndex++;
+    const newTitlePrefix = '(续) ';
+    const remainingChunks = chunks.slice(maxChunksPerCard);
+    const remainingText = remainingChunks.join('\n\n');
+
+    const newCard = new CardKitBackend(this.client);
+    const newCardJson = buildSchema2Card(
+      remainingText || '...',
+      'streaming',
+      newTitlePrefix,
+      consistentTitle,
+    );
+    await newCard.createCard(newCardJson);
+    // New card is sent as a fresh message (not reply)
+    const newMessageId = await newCard.sendCard(this.chatId);
+    this.cards.push(newCard);
+
+    // Register the new card's messageId for interrupt button routing
+    this.onCardCreated?.(newMessageId);
+  }
+
+  getAllMessageIds(): string[] {
+    return this.cards
+      .map((c) => c.messageId)
+      .filter((id): id is string => id !== null);
+  }
+
+  getLatestMessageId(): string | null {
+    for (let i = this.cards.length - 1; i >= 0; i--) {
+      if (this.cards[i].messageId) return this.cards[i].messageId;
+    }
+    return null;
+  }
+}
+
 // ─── Streaming Card Controller ────────────────────────────────
 
 export class StreamingCardController {
@@ -231,17 +682,23 @@ export class StreamingCardController {
   private accumulatedText = '';
   private flushCtrl: FlushController;
   private patchFailCount = 0;
-  private readonly maxPatchFailures = 2;
+  private maxPatchFailures = 2;
   private readonly client: lark.Client;
   private readonly chatId: string;
   private readonly replyToMsgId?: string;
   private readonly onFallback?: () => void;
+  private readonly onCardCreated?: (messageId: string) => void;
+
+  // CardKit mode
+  private useCardKit = false;
+  private multiCard: MultiCardManager | null = null;
 
   constructor(opts: StreamingCardOptions) {
     this.client = opts.client;
     this.chatId = opts.chatId;
     this.replyToMsgId = opts.replyToMsgId;
     this.onFallback = opts.onFallback;
+    this.onCardCreated = opts.onCardCreated;
     this.flushCtrl = new FlushController();
   }
 
@@ -249,8 +706,21 @@ export class StreamingCardController {
     return this.state;
   }
 
+  get currentMessageId(): string | null {
+    if (this.multiCard) return this.multiCard.getLatestMessageId();
+    return this.messageId;
+  }
+
   isActive(): boolean {
     return this.state === 'streaming' || this.state === 'creating';
+  }
+
+  /**
+   * Get all messageIds across all cards (for multi-card cleanup).
+   */
+  getAllMessageIds(): string[] {
+    if (this.multiCard) return this.multiCard.getAllMessageIds();
+    return this.messageId ? [this.messageId] : [];
   }
 
   /**
@@ -286,7 +756,7 @@ export class StreamingCardController {
     this.state = 'completed';
     this.flushCtrl.dispose();
 
-    if (this.messageId) {
+    if (this.messageId || this.multiCard) {
       try {
         await this.patchCard('completed');
       } catch (err) {
@@ -305,7 +775,7 @@ export class StreamingCardController {
     this.state = 'aborted';
     this.flushCtrl.dispose();
 
-    if (this.messageId && wasActive) {
+    if ((this.messageId || this.multiCard) && wasActive) {
       if (reason) {
         this.accumulatedText += `\n\n---\n*${reason}*`;
       }
@@ -324,10 +794,48 @@ export class StreamingCardController {
   // ─── Internal Methods ──────────────────────────────────
 
   private async createInitialCard(): Promise<void> {
-    const card = buildStreamingCard(
-      this.accumulatedText || '...',
-      'streaming',
-    );
+    const initialText = this.accumulatedText || '...';
+
+    // Try CardKit path first
+    try {
+      this.multiCard = new MultiCardManager(
+        this.client,
+        this.chatId,
+        this.replyToMsgId,
+        this.onCardCreated,
+      );
+      const messageId = await this.multiCard.initialize(initialText);
+
+      this.messageId = messageId;
+      this.useCardKit = true;
+      // CardKit mode: use 1000ms interval (faster), bump failure tolerance
+      this.flushCtrl.dispose();
+      this.flushCtrl = new FlushController(1000, 50);
+      this.maxPatchFailures = 3;
+
+      logger.debug(
+        { chatId: this.chatId, messageId, mode: 'cardkit' },
+        'Streaming card created via CardKit',
+      );
+    } catch (cardKitErr) {
+      // CardKit failed — fall back to legacy message.create + message.patch
+      logger.info(
+        { err: cardKitErr, chatId: this.chatId },
+        'CardKit unavailable, falling back to message.patch',
+      );
+      this.multiCard = null;
+      this.useCardKit = false;
+
+      await this.createLegacyCard(initialText);
+      return;
+    }
+
+    // Handle state changes during await (same logic for both paths)
+    this.finishCardCreation();
+  }
+
+  private async createLegacyCard(initialText: string): Promise<void> {
+    const card = buildStreamingCard(initialText, 'streaming');
     const content = JSON.stringify(card);
 
     try {
@@ -354,44 +862,47 @@ export class StreamingCardController {
         throw new Error('No message_id in response');
       }
 
-      // Check if state changed while we were awaiting the API call.
-      // complete() or abort() may have been called during createInitialCard().
-      if (this.state !== 'creating') {
-        // Apply the pending final state now that we have a messageId.
-        const finalState = this.state as 'completed' | 'aborted';
-        logger.debug(
-          { chatId: this.chatId, messageId: this.messageId, finalState },
-          'Streaming card created but state already changed, patching to final',
-        );
-        try {
-          await this.patchCard(finalState);
-        } catch (err) {
-          logger.debug({ err, chatId: this.chatId }, 'Failed to patch to final state after late creation');
-        }
-        return;
-      }
-
-      this.state = 'streaming';
       logger.debug(
-        { chatId: this.chatId, messageId: this.messageId },
-        'Streaming card created',
+        { chatId: this.chatId, messageId: this.messageId, mode: 'legacy' },
+        'Streaming card created via legacy path',
       );
 
-      // If text accumulated while creating, schedule a patch
-      if (this.accumulatedText.length > 3) {
-        this.schedulePatch();
-      }
+      this.finishCardCreation();
     } catch (err) {
       this.state = 'error';
       throw err;
     }
   }
 
+  private finishCardCreation(): void {
+    // Check if state changed while we were awaiting the API call.
+    if (this.state !== 'creating') {
+      const finalState = this.state as 'completed' | 'aborted';
+      logger.debug(
+        { chatId: this.chatId, messageId: this.messageId, finalState },
+        'Streaming card created but state already changed, patching to final',
+      );
+      this.patchCard(finalState).catch((err) => {
+        logger.debug({ err, chatId: this.chatId }, 'Failed to patch to final state after late creation');
+      });
+      return;
+    }
+
+    this.state = 'streaming';
+    if (this.messageId) {
+      this.onCardCreated?.(this.messageId);
+    }
+
+    // If text accumulated while creating, schedule a patch
+    if (this.accumulatedText.length > 3) {
+      this.schedulePatch();
+    }
+  }
+
   private schedulePatch(): void {
     if (this.patchFailCount >= this.maxPatchFailures) {
-      // Too many failures, fall back to static card
       logger.info(
-        { chatId: this.chatId },
+        { chatId: this.chatId, useCardKit: this.useCardKit },
         'Streaming card: too many patch failures, falling back',
       );
       this.state = 'error';
@@ -408,27 +919,76 @@ export class StreamingCardController {
   private async patchCard(
     displayState: 'streaming' | 'completed' | 'aborted',
   ): Promise<void> {
-    if (!this.messageId) return;
+    if (this.useCardKit && this.multiCard) {
+      // CardKit path
+      try {
+        await this.multiCard.commitContent(this.accumulatedText, displayState);
+        this.flushCtrl.markFlushed(this.accumulatedText.length);
+        this.patchFailCount = 0;
+      } catch (err) {
+        this.patchFailCount++;
+        logger.debug(
+          { err, chatId: this.chatId, failCount: this.patchFailCount, mode: 'cardkit' },
+          'CardKit card update failed',
+        );
+        throw err;
+      }
+    } else {
+      // Legacy message.patch path
+      if (!this.messageId) return;
 
-    const card = buildStreamingCard(this.accumulatedText, displayState);
-    const content = JSON.stringify(card);
+      const card = buildStreamingCard(this.accumulatedText, displayState);
+      const content = JSON.stringify(card);
 
-    try {
-      await this.client.im.v1.message.patch({
-        path: { message_id: this.messageId },
-        data: { content },
-      });
-      this.flushCtrl.markFlushed(this.accumulatedText.length);
-      this.patchFailCount = 0; // Reset on success
-    } catch (err) {
-      this.patchFailCount++;
-      logger.debug(
-        { err, chatId: this.chatId, failCount: this.patchFailCount },
-        'Streaming card patch failed',
-      );
-      throw err;
+      try {
+        await this.client.im.v1.message.patch({
+          path: { message_id: this.messageId },
+          data: { content },
+        });
+        this.flushCtrl.markFlushed(this.accumulatedText.length);
+        this.patchFailCount = 0;
+      } catch (err) {
+        this.patchFailCount++;
+        logger.debug(
+          { err, chatId: this.chatId, failCount: this.patchFailCount, mode: 'legacy' },
+          'Streaming card patch failed',
+        );
+        throw err;
+      }
     }
   }
+}
+
+// ─── MessageId → ChatJid Mapping ─────────────────────────────
+// Reverse lookup for card callback: given a Feishu messageId from a button click,
+// find which chatJid (streaming session) it belongs to.
+
+const messageIdToChatJid = new Map<string, string>();
+
+/**
+ * Register a messageId → chatJid mapping for card callback routing.
+ */
+export function registerMessageIdMapping(
+  messageId: string,
+  chatJid: string,
+): void {
+  messageIdToChatJid.set(messageId, chatJid);
+}
+
+/**
+ * Resolve a chatJid from a Feishu messageId.
+ */
+export function resolveJidByMessageId(
+  messageId: string,
+): string | undefined {
+  return messageIdToChatJid.get(messageId);
+}
+
+/**
+ * Remove a messageId mapping.
+ */
+export function unregisterMessageId(messageId: string): void {
+  messageIdToChatJid.delete(messageId);
 }
 
 // ─── Streaming Session Registry ───────────────────────────────
@@ -455,8 +1015,15 @@ export function registerStreamingSession(
 
 /**
  * Remove a streaming session from the registry.
+ * Also cleans up all messageId → chatJid mappings (including multi-card).
  */
 export function unregisterStreamingSession(chatJid: string): void {
+  const session = activeSessions.get(chatJid);
+  if (session) {
+    for (const msgId of session.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
   activeSessions.delete(chatJid);
 }
 
@@ -498,6 +1065,12 @@ export async function abortAllStreamingSessions(
     }
   }
   await Promise.allSettled(promises);
+  // Clean up messageId → chatJid mappings before clearing sessions
+  for (const session of activeSessions.values()) {
+    for (const msgId of session.getAllMessageIds()) {
+      unregisterMessageId(msgId);
+    }
+  }
   activeSessions.clear();
   logger.info(
     { count: promises.length },

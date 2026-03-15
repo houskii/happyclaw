@@ -91,7 +91,7 @@ export class TerminalManager {
     try {
       const ptyProcess = pty.spawn(
         'docker',
-        ['exec', '-it', containerName, '/bin/sh', '-lc', shellBootstrap],
+        ['exec', '-it', '-u', 'node', containerName, '/bin/sh', '-lc', shellBootstrap],
         {
           name: 'xterm-256color',
           cols,
@@ -126,7 +126,7 @@ export class TerminalManager {
       );
     }
 
-    const proc = spawn('docker', ['exec', '-i', containerName, '/bin/sh'], {
+    const proc = spawn('docker', ['exec', '-i', '-u', 'node', containerName, '/bin/sh'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,

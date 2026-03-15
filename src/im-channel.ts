@@ -83,7 +83,7 @@ export interface IMChannel {
   isConnected(): boolean;
   syncGroups?(): Promise<void>;
   /** Create a streaming card session for real-time card updates (Feishu only) */
-  createStreamingSession?(chatId: string): StreamingCardController | undefined;
+  createStreamingSession?(chatId: string, onCardCreated?: (messageId: string) => void): StreamingCardController | undefined;
   getChatInfo?(chatId: string): Promise<{
     avatar?: string;
     name?: string;
@@ -224,7 +224,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
       return inner.getChatInfo(chatId);
     },
 
-    createStreamingSession(chatId: string): StreamingCardController | undefined {
+    createStreamingSession(chatId: string, onCardCreated?: (messageId: string) => void): StreamingCardController | undefined {
       if (!inner) return undefined;
       const larkClient = inner.getLarkClient();
       if (!larkClient) return undefined;
@@ -232,6 +232,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         client: larkClient,
         chatId,
         replyToMsgId: inner.getLastMessageId(chatId),
+        onCardCreated,
       };
       return new StreamingCardController(opts);
     },

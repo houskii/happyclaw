@@ -17,6 +17,10 @@ import {
 import { broadcastNewMessage } from './web.js';
 import { detectImageMimeType } from './image-detector.js';
 import { analyzeIntent } from './intent-analyzer.js';
+import {
+  resolveJidByMessageId,
+  getStreamingSession,
+} from './feishu-streaming-card.js';
 
 // ─── FeishuConnection Interface ────────────────────────────────
 
@@ -1345,6 +1349,30 @@ export function createFeishuConnection(
             connectOptions?.onBotRemovedFromGroup?.(chatJid);
           } catch (err) {
             logger.error({ err }, 'Error handling group disbanded event');
+          }
+        },
+        'card.action.trigger': async (data: any) => {
+          try {
+            const action = data?.action?.value?.action;
+            const messageId = data?.context?.open_message_id;
+            if (action !== 'interrupt_stream' || !messageId) return;
+
+            const chatJid = resolveJidByMessageId(messageId);
+            if (!chatJid) {
+              logger.debug({ messageId }, 'Card action: no mapping for messageId');
+              return;
+            }
+
+            const session = getStreamingSession(chatJid);
+            if (!session?.isActive()) {
+              logger.debug({ chatJid, messageId }, 'Card action: session not active');
+              return;
+            }
+
+            logger.info({ chatJid, messageId }, 'Card action: interrupt via button');
+            connectOptions?.onInterruptRequest?.(chatJid, 'stop');
+          } catch (err) {
+            logger.error({ err }, 'Error handling card action trigger');
           }
         },
       });

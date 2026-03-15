@@ -218,14 +218,14 @@ class IMConnectionManager {
    * Create a streaming card session for an IM chat (Feishu only).
    * Returns undefined for non-Feishu channels or if not supported.
    */
-  createStreamingSession(jid: string): StreamingCardController | undefined {
+  createStreamingSession(jid: string, onCardCreated?: (messageId: string) => void): StreamingCardController | undefined {
     const channelType = getChannelType(jid);
     if (channelType !== 'feishu') return undefined;
 
     const chatId = extractChatId(jid);
     const channel = this.findChannelForJid(jid, channelType);
     if (channel?.createStreamingSession) {
-      return channel.createStreamingSession(chatId);
+      return channel.createStreamingSession(chatId, onCardCreated);
     }
     return undefined;
   }
