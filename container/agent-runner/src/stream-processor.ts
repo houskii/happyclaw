@@ -82,6 +82,11 @@ export class StreamEventProcessor {
     return this.backgroundTaskToolUseIds.size;
   }
 
+  /** Whether a top-level tool call is currently executing (waiting for result). */
+  get hasActiveToolCall(): boolean {
+    return this.activeTopLevelToolUseId !== null;
+  }
+
   constructor(emit: EmitFn, log: LogFn, onModeChangeRequest?: ModeChangeRequestFn) {
     this.emit = emit;
     this.log = log;

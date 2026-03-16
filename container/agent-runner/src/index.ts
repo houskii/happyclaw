@@ -634,14 +634,36 @@ function buildMemoryRecallPrompt(isHome: boolean, _isAdminHome: boolean): string
     }
 
     parts.push(
-      '你有长期记忆能力。每次对话结束后，系统会自动整理对话内容，提取关键信息存入记忆，所以你不需要频繁手动记录。',
+      '### memory_query 和 memory_remember',
       '',
-      '只在以下情况使用 `memory_remember`：',
+      '这两个 MCP 工具的底层是一个独立的记忆 Agent，它可以搜索、整理和存储你的长期记忆。',
+      '',
+      '**memory_query — 深度回忆**',
+      '',
+      '你可以像问一个知道一切过往的助手那样，直接问它问题。不需要把问题过度拆解，但要给足背景。例如：',
+      '- 「今天是 2026-03-16 周一，根据记忆用户今天可能有什么安排？」',
+      '- 「用户提到过一个关于 XXX 的项目，具体细节是什么？」',
+      '- 「上周用户和我聊过一个技术方案，涉及向量数据库，帮我回忆一下。」',
+      '',
+      '**什么时候应该使用 memory_query：**',
+      '- 当你不确定自己知不知道某件事时——先查再答，不要猜',
+      '- 用户问起过去的事（"之前聊的"、"上次说的"、"还记得吗"）',
+      '- 涉及用户个人信息、日程、偏好等需要确认准确性的问题',
+      '- 用户在考你/测试你的记忆时',
+      '- compact summary 或随身索引中的信息不够详细，需要深入了解时',
+      '',
+      '随身索引和 compact summary 可以作为快速参考。如果其中已有一些信息，你可以先给出快速印象，',
+      '然后询问用户要不要让你深入想想（调用 memory_query 获取完整细节）。',
+      '',
+      '**重要：查询通常需要 1-2 分钟。** 发起查询前，先给用户发一条消息（如「让我好好想想……」「我去翻翻记忆～」），',
+      '避免用户以为你卡死了。如果是 IM 渠道，用 send_message 发送提示后再调用 memory_query。',
+      '',
+      '**memory_remember — 主动记忆**',
+      '',
+      '每次对话结束后，系统会自动整理对话内容存入记忆，所以不需要频繁手动记录。',
+      '只在以下情况使用：',
       '- 用户明确说「记住」「别忘了」',
       '- 特别重要、怕被自动整理遗漏的信息（如用户纠正了个人信息、重要决策）',
-      '',
-      '需要回忆过去的对话或查找信息 → `memory_query`',
-      '查询可能需要几秒钟，可以先说「让我想想……」。',
       '',
       '不要在 CLAUDE.md 里手动维护用户信息——用户身份、偏好、知识由记忆系统统一管理，已通过上方随身索引加载。',
     );
@@ -718,7 +740,7 @@ async function runQuery(
   // Query activity watchdog: if the SDK for-await loop yields no events for
   // QUERY_ACTIVITY_TIMEOUT_MS, the API call is likely hung.  Force an interrupt
   // so the session loop can retry with the same prompt.
-  const QUERY_ACTIVITY_TIMEOUT_MS = 60_000;
+  const QUERY_ACTIVITY_TIMEOUT_MS = 300_000;
   let lastEventAt = Date.now();
   let queryActivityTimer: ReturnType<typeof setTimeout> | null = null;
   const resetQueryActivityTimer = () => {
@@ -730,6 +752,13 @@ async function runQuery(
       // they won't produce events on the main iterator but are doing real work.
       if (processor.pendingBackgroundTaskCount > 0) {
         log(`Activity timeout skipped: ${processor.pendingBackgroundTaskCount} background task(s) still running, extending timer`);
+        resetQueryActivityTimer();
+        return;
+      }
+      // Don't interrupt while a tool call (e.g. MCP memory_query) is executing —
+      // it blocks the SDK iterator but is doing real work.
+      if (processor.hasActiveToolCall) {
+        log(`Activity timeout skipped: tool call in progress, extending timer`);
         resetQueryActivityTimer();
         return;
       }
