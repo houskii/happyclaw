@@ -504,10 +504,13 @@ export class MemoryAgentManager {
     const configDir = path.join(DATA_DIR, 'sessions', homeFolder, '.claude');
     fs.mkdirSync(configDir, { recursive: true });
 
+    // Remove CLAUDECODE to avoid "cannot be launched inside another Claude Code session" error
+    const { CLAUDECODE: _, ...baseEnv } = process.env;
+
     const proc = spawn('node', [MEMORY_AGENT_DIST], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
-        ...process.env,
+        ...baseEnv,
         ...claudeEnv,
         HAPPYCLAW_MEMORY_DIR: memDir,
         HAPPYCLAW_MODEL: 'opus',
