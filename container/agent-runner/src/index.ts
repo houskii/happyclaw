@@ -1112,6 +1112,11 @@ async function runQuery(
         log(`Result received but ${processor.pendingBackgroundTaskCount} background task(s) pending, keeping query alive`);
         waitingForBackgroundTasks = true;
         resetQueryActivityTimer();
+        // The SDK only delivers task_notification during an active conversation
+        // turn — it won't yield it while idle between turns.  Push a synthetic
+        // user message to start a new turn so the SDK has a context to inject
+        // the notification into when the background task completes.
+        stream.push('[系统提示] 后台任务仍在运行中，等待完成通知。收到 task_notification 后请立即汇报结果。在此之前不要输出任何内容。');
       } else {
         // No background tasks — safe to end the stream and stop IPC polling.
         // IPC polling must stop before stream.end() to avoid push-after-close
