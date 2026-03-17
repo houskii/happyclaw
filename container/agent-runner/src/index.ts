@@ -1051,7 +1051,7 @@ async function runQuery(
     }
 
     if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-      const tn = message as unknown as { task_id: string; status: string; summary: string };
+      const tn = message as unknown as { task_id: string; tool_use_id?: string; status: string; summary: string };
       processor.processTaskNotification(tn);
     }
 

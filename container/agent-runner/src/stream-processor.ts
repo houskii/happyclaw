@@ -747,24 +747,24 @@ export class StreamEventProcessor {
   /**
    * Process a task_notification system message.
    */
-  processTaskNotification(message: { task_id: string; status: string; summary: string }): void {
-    // Resolve SDK task_id → tool_use_id.
-    // The SDK assigns its own short-hash task_id (e.g. "a68ac00") to background tasks,
-    // which differs from the tool_use block's id (e.g. "toolu_01LR7Bv9...").
-    let resolvedId = message.task_id;
-    const mapped = this.sdkTaskIdToToolUseId.get(message.task_id);
-    if (mapped) {
-      resolvedId = mapped;
-      this.sdkTaskIdToToolUseId.delete(message.task_id);
-      this.log(`Task notification: SDK task_id ${message.task_id} → ${resolvedId.slice(0, 12)}`);
-    } else if (!this.backgroundTaskToolUseIds.has(resolvedId)) {
-      // Fallback: if there's exactly one pending background task, assume it matches
-      if (this.backgroundTaskToolUseIds.size === 1) {
+  processTaskNotification(message: { task_id: string; tool_use_id?: string; status: string; summary: string }): void {
+    // Resolve to tool_use_id for cleanup.
+    // SDK ≥0.2.47 includes tool_use_id directly in the notification.
+    // For older SDKs, fall back to the sdkTaskIdToToolUseId mapping or heuristic.
+    let resolvedId = message.tool_use_id || message.task_id;
+    if (!this.backgroundTaskToolUseIds.has(resolvedId)) {
+      // tool_use_id missing or doesn't match — try mapping table
+      const mapped = this.sdkTaskIdToToolUseId.get(message.task_id);
+      if (mapped) {
+        resolvedId = mapped;
+        this.sdkTaskIdToToolUseId.delete(message.task_id);
+        this.log(`Task notification: SDK task_id ${message.task_id} → ${resolvedId.slice(0, 12)} (via mapping)`);
+      } else if (this.backgroundTaskToolUseIds.size === 1) {
+        // Last resort: single pending background task
         const [only] = this.backgroundTaskToolUseIds;
         resolvedId = only;
         this.log(`Task notification fallback: ${message.task_id} → ${resolvedId.slice(0, 12)}`);
       } else if (this.backgroundTaskToolUseIds.size > 1) {
-        // Multiple pending — pick first (imperfect but ensures count decreases)
         const [first] = this.backgroundTaskToolUseIds;
         resolvedId = first;
         this.log(`Task notification fallback (ambiguous, ${this.backgroundTaskToolUseIds.size} pending): ${message.task_id} → ${resolvedId.slice(0, 12)}`);
