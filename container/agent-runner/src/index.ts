@@ -1000,6 +1000,25 @@ async function runQuery(
       log(`[msg #${messageCount}] type=${msgType}${msgParentToolUseId ? ` parent=${msgParentToolUseId.slice(0, 12)}` : ''}`);
     }
 
+    // ── Extract SDK task_id from background Task tool_results ──
+    // The SDK assigns its own short-hash task_id (e.g. "a68ac00") to background tasks,
+    // which differs from the tool_use block's id. We parse the tool_result to build
+    // a mapping so processTaskNotification can resolve IDs correctly.
+    if (message.type === 'user' && !msgParentToolUseId) {
+      const userContent = (message as any).message?.content;
+      if (Array.isArray(userContent)) {
+        for (const block of userContent) {
+          if (block.type === 'tool_result' && block.tool_use_id && Array.isArray(block.content)) {
+            const text = block.content.map((b: { text?: string }) => b.text || '').join('');
+            const agentIdMatch = text.match(/agentId:\s*([a-f0-9]+)/);
+            if (agentIdMatch && processor.isBackgroundTask(block.tool_use_id)) {
+              processor.registerSdkTaskId(agentIdMatch[1], block.tool_use_id);
+            }
+          }
+        }
+      }
+    }
+
     // ── 子 Agent 消息转 StreamEvent ──
     processor.processSubAgentMessage(message as any);
 
