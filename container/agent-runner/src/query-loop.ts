@@ -39,6 +39,7 @@ export interface QueryLoopConfig {
   initialPrompt: string;
   initialImages?: Array<{ data: string; mimeType?: string }>;
   sessionId?: string;
+  exitAfterSuccess?: boolean;
   state: SessionState;
   ipcPaths: IpcPaths;
   imChannelsFile: string;
@@ -377,8 +378,16 @@ export async function runQueryLoop(config: QueryLoopConfig): Promise<void> {
       process.exit(0);
     }
 
-    // Wait for next message
     writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+
+    // Scheduled task runners should release state.active immediately after success.
+    if (config.exitAfterSuccess) {
+      log('Query completed in run-once mode, exiting without IPC wait');
+      await runner.cleanup?.();
+      break;
+    }
+
+    // Wait for next message
     log('Query ended, waiting for next IPC message...');
 
     const nextMsg = await waitForIpcMessage(ipcPaths, log, writeOutput, state, config.imChannelsFile);
