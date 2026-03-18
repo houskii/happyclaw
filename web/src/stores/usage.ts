@@ -34,6 +34,27 @@ export interface UsageUser {
   username: string;
 }
 
+export interface SubscriptionWindow {
+  utilization: number;
+  resets_at: string;
+}
+
+export interface SubscriptionData {
+  five_hour?: SubscriptionWindow;
+  seven_day?: SubscriptionWindow;
+  seven_day_sonnet?: SubscriptionWindow;
+  extra_usage?: { is_enabled: boolean };
+}
+
+export interface SubscriptionResponse {
+  subscription: SubscriptionData;
+  cached: boolean;
+  cached_at: string;
+  rate_limited?: boolean;
+  error?: string;
+  message?: string;
+}
+
 interface UsageState {
   summary: UsageSummary | null;
   breakdown: UsageBreakdown[];
@@ -48,12 +69,19 @@ interface UsageState {
   availableModels: string[];
   availableUsers: UsageUser[];
 
+  // Subscription (Anthropic plan limits)
+  subscription: SubscriptionData | null;
+  subscriptionLoading: boolean;
+  subscriptionError: string | null;
+  subscriptionErrorCode: string | null; // 'no_credentials' means user isn't on OAuth
+
   // Actions
   loadStats: (days?: number) => Promise<void>;
   setDays: (days: number) => void;
   setSelectedUserId: (id: string | null) => void;
   setSelectedModel: (model: string | null) => void;
   loadFilters: () => Promise<void>;
+  loadSubscription: () => Promise<void>;
 }
 
 export const useUsageStore = create<UsageState>((set, get) => ({
@@ -67,6 +95,10 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   selectedModel: null,
   availableModels: [],
   availableUsers: [],
+  subscription: null,
+  subscriptionLoading: false,
+  subscriptionError: null,
+  subscriptionErrorCode: null,
 
   loadStats: async (days?: number) => {
     const d = days ?? get().days;
@@ -122,6 +154,34 @@ export const useUsageStore = create<UsageState>((set, get) => ({
       });
     } catch {
       // Filters are non-critical, silently fail
+    }
+  },
+
+  loadSubscription: async () => {
+    set({ subscriptionLoading: true, subscriptionError: null, subscriptionErrorCode: null });
+    try {
+      const data = await api.get<SubscriptionResponse>('/api/usage/subscription');
+      if (data.error) {
+        set({
+          subscriptionLoading: false,
+          subscriptionError: data.message || data.error,
+          subscriptionErrorCode: data.error,
+        });
+      } else {
+        set({ subscription: data.subscription, subscriptionLoading: false });
+      }
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : String(err);
+      set({
+        subscriptionLoading: false,
+        subscriptionError: errorMessage,
+        subscriptionErrorCode: 'fetch_error',
+      });
     }
   },
 }));

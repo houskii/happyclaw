@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   RefreshCw, Zap, ArrowUpRight, ArrowDownRight, DollarSign,
-  MessageSquare, Database, Filter, Info,
+  MessageSquare, Database, Filter, Info, Clock,
+  Gauge, ExternalLink,
 } from 'lucide-react';
 import { useUsageStore } from '../stores/usage';
+import type { SubscriptionWindow } from '../stores/usage';
 import { useAuthStore } from '../stores/auth';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonStatCards } from '@/components/common/Skeletons';
@@ -42,6 +44,158 @@ function formatCost(usd: number): string {
   if (usd >= 0.01) return `$${usd.toFixed(3)}`;
   if (usd > 0) return `$${usd.toFixed(4)}`;
   return '$0.00';
+}
+
+// --- Anthropic Subscription Usage Card ---
+
+function formatResetTime(resetsAt: string): string {
+  const now = Date.now();
+  const reset = new Date(resetsAt).getTime();
+  const diffMs = reset - now;
+  if (diffMs <= 0) return '即将重置';
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 60) return `${diffMin} 分钟后重置`;
+  const diffHr = Math.floor(diffMin / 60);
+  const remMin = diffMin % 60;
+  if (diffHr < 24) return remMin > 0 ? `${diffHr} 小时 ${remMin} 分钟后重置` : `${diffHr} 小时后重置`;
+  const diffDay = Math.floor(diffHr / 24);
+  const remHr = diffHr % 24;
+  return remHr > 0 ? `${diffDay} 天 ${remHr} 小时后重置` : `${diffDay} 天后重置`;
+}
+
+function SubscriptionProgressBar({ utilization }: { utilization: number }) {
+  const percent = Math.min(utilization, 100);
+  const color =
+    percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-teal-500';
+  return (
+    <div className="h-2.5 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+      <div
+        className={`h-full ${color} rounded-full transition-all duration-500`}
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
+
+function SubscriptionWindowRow({
+  label,
+  window: w,
+}: {
+  label: string;
+  window: SubscriptionWindow;
+}) {
+  const [resetText, setResetText] = useState(() => formatResetTime(w.resets_at));
+
+  useEffect(() => {
+    setResetText(formatResetTime(w.resets_at));
+    const timer = setInterval(() => setResetText(formatResetTime(w.resets_at)), 60_000);
+    return () => clearInterval(timer);
+  }, [w.resets_at]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="text-muted-foreground">
+          {w.utilization.toFixed(0)}% 已用
+          <span className="mx-1.5 text-border">·</span>
+          <Clock className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5" />
+          {resetText}
+        </span>
+      </div>
+      <SubscriptionProgressBar utilization={w.utilization} />
+    </div>
+  );
+}
+
+function SubscriptionUsageCard() {
+  const { subscription, subscriptionLoading, subscriptionError, subscriptionErrorCode, loadSubscription } =
+    useUsageStore();
+
+  useEffect(() => {
+    loadSubscription();
+  }, [loadSubscription]);
+
+  // Hide entirely if user is not on OAuth (no credentials = not using Anthropic subscription)
+  if (subscriptionErrorCode === 'no_credentials') {
+    return null;
+  }
+
+  // If API works, show data with refresh; otherwise show link to claude.ai
+  const apiUnavailable = subscriptionError && !subscription;
+  const handleRefresh = useCallback(() => loadSubscription(), [loadSubscription]);
+
+  return (
+    <div className="bg-card rounded-xl border border-border p-4 lg:p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Gauge className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+          <h2 className="text-lg font-semibold text-foreground">Anthropic 订阅配额</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href="https://claude.ai/settings/usage"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-teal-600 dark:text-teal-400 hover:underline"
+          >
+            在 claude.ai 查看
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+          {!apiUnavailable && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={subscriptionLoading}
+            >
+              <RefreshCw className={`w-4 h-4 ${subscriptionLoading ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {subscriptionLoading && !subscription && (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="h-4 bg-muted rounded w-1/3 animate-pulse" />
+              <div className="h-2.5 bg-muted rounded-full animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {subscription && (
+        <div className="space-y-4">
+          {subscription.five_hour && (
+            <SubscriptionWindowRow label="5 小时窗口" window={subscription.five_hour} />
+          )}
+          {subscription.seven_day && (
+            <SubscriptionWindowRow label="7 天窗口" window={subscription.seven_day} />
+          )}
+          {subscription.seven_day_sonnet && subscription.seven_day_sonnet.utilization > 0 && (
+            <SubscriptionWindowRow
+              label="7 天 Sonnet 窗口"
+              window={subscription.seven_day_sonnet}
+            />
+          )}
+          {subscription.extra_usage?.is_enabled && (
+            <p className="text-xs text-muted-foreground">
+              超量使用已启用
+            </p>
+          )}
+        </div>
+      )}
+
+      {apiUnavailable && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground px-3 py-2 rounded-md bg-muted">
+          <Info className="w-4 h-4 shrink-0" />
+          <span>Anthropic 暂未开放配额查询 API，请点击上方链接前往 claude.ai 查看用量</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function UsagePage() {
@@ -202,6 +356,8 @@ export function UsagePage() {
             </div>
           }
         />
+
+        <SubscriptionUsageCard />
 
         {availableModels.length > 1 && (
           <p className="text-xs text-muted-foreground mb-4 flex items-center gap-1.5">
