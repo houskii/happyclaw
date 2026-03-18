@@ -1679,6 +1679,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastReplyMsgId: string | undefined;
   const queryTaskIds = new Set<string>();
   const lastProcessed = missedMessages[missedMessages.length - 1];
+  let handoffAfterCompletedTurn = false;
 
   const pickRunningTaskForNotification = (): string | null => {
     const runningInQuery = Array.from(queryTaskIds)
@@ -2088,11 +2089,31 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           streamingBlocksManager.finalize(group.folder);
         }
 
-        // Query 返回无文本结果（仅工具调用、send_message 等）：通知前端清除
-        // 流式状态，避免 agent idle 期间持续显示"正在思考..."。
+          // Query 返回无文本结果（仅工具调用、send_message 等）：通知前端清除
+          // 流式状态，避免 agent idle 期间持续显示"正在思考..."。
         if (result.status === 'success' && !result.result) {
-          finalizeCurrentTurn('completed');
-          broadcastRunnerState(chatJid, 'idle');
+          const pendingCounts = turnManager.getPendingCounts(group.folder);
+          if (pendingCounts.size > 0) {
+            handoffAfterCompletedTurn = true;
+            const drained = queue.sendDrain(chatJid);
+            logger.info(
+              {
+                chatJid,
+                folder: group.folder,
+                pendingChannels: Array.from(pendingCounts.entries()),
+                drained,
+              },
+              'Turn completed with queued work pending, draining runner for handoff',
+            );
+            if (!drained) {
+              handoffAfterCompletedTurn = false;
+              finalizeCurrentTurn('completed');
+              broadcastRunnerState(chatJid, 'idle');
+            }
+          } else {
+            finalizeCurrentTurn('completed');
+            broadcastRunnerState(chatJid, 'idle');
+          }
         }
 
         if (result.status === 'error') {
@@ -2127,7 +2148,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         ? 'interrupted'
         : isErrorExit_
           ? 'error'
-          : isDrained
+          : handoffAfterCompletedTurn
+            ? 'completed'
+            : isDrained
             ? 'drained'
             : 'completed',
       { errorDetail: output.error || lastError },
@@ -3752,6 +3775,10 @@ async function startMessageLoop(): Promise<void> {
           );
 
           if (route.action === 'already_queued') {
+            logger.info(
+              { chatJid, channel, folder },
+              'Turn: message already queued, waiting for pending handoff',
+            );
             // Message's chatJid is already in the pending queue — skip
             continue;
           }
