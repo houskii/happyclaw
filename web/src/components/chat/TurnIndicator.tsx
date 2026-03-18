@@ -2,6 +2,7 @@
  * TurnIndicator: shows current turn info and pending queue status.
  * Displayed above the StreamingDisplay when a turn is active.
  */
+import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores/chat';
 
 interface TurnIndicatorProps {
@@ -27,6 +28,15 @@ function formatDuration(startedAt: number): string {
 export function TurnIndicator({ chatJid }: TurnIndicatorProps) {
   const activeTurn = useChatStore((s) => s.activeTurn[chatJid]);
   const pendingBuffer = useChatStore((s) => s.pendingBuffer[chatJid]);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!activeTurn) return;
+    const id = window.setInterval(() => {
+      setTick((n) => n + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [activeTurn]);
 
   if (!activeTurn && !pendingBuffer) return null;
 
@@ -37,28 +47,31 @@ export function TurnIndicator({ chatJid }: TurnIndicatorProps) {
   if (!activeTurn && pendingEntries.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-md">
+    <div className="py-2">
       {activeTurn && (
-        <span className="flex items-center gap-1">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-          <span>Turn</span>
-          <span className="text-gray-400 dark:text-gray-500">·</span>
-          <span>{formatChannel(activeTurn.channel)}</span>
-          <span className="text-gray-400 dark:text-gray-500">·</span>
-          <span>{activeTurn.messageCount} 条</span>
-          <span className="text-gray-400 dark:text-gray-500">·</span>
-          <span>{formatDuration(activeTurn.startedAt)}</span>
-        </span>
+        <div className="flex items-center gap-2 px-4">
+          <div className="flex-1 border-t border-dashed border-teal-300/80" />
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-teal-700 dark:text-teal-300 whitespace-nowrap">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+            <span>Turn</span>
+            <span className="opacity-50">·</span>
+            <span>{formatChannel(activeTurn.channel)}</span>
+            <span className="opacity-50">·</span>
+            <span>{activeTurn.messageCount} 条</span>
+            <span className="opacity-50">·</span>
+            <span>{formatDuration(activeTurn.startedAt)}</span>
+            <span className="opacity-50">·</span>
+            <span>进行中</span>
+          </span>
+          <div className="flex-1 border-t border-dashed border-teal-300/80" />
+        </div>
       )}
       {pendingEntries.length > 0 && (
-        <>
-          {activeTurn && <span className="text-gray-300 dark:text-gray-600">|</span>}
-          <span className="text-amber-600 dark:text-amber-400">
-            {pendingEntries
-              .map(([ch, count]) => `${formatChannel(ch)} ${count} 条等待中`)
-              .join(' · ')}
-          </span>
-        </>
+        <div className="mt-1 text-center text-[11px] text-amber-600 dark:text-amber-400 px-4">
+          {pendingEntries
+            .map(([ch, count]) => `${formatChannel(ch)} ${count} 条等待中`)
+            .join(' · ')}
+        </div>
       )}
     </div>
   );

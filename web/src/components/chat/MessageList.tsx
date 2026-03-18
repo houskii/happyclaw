@@ -64,11 +64,65 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
   const [atTop, setAtTop] = useState(false);
   const prevMessageCount = useRef(messages.length);
 
-  // Turn boundaries: skip the first turn, collect startedAt for subsequent turns
-  const turnBoundaries = useMemo(() => {
-    if (!turns || turns.length <= 1) return [];
-    return turns.slice(1).map(t => ({ timestamp: t.startedAt, turn: t }));
-  }, [turns]);
+  // Turn boundaries:
+  // 1. Prefer anchoring a turn to its first visible input message via messageIds.
+  // 2. Fall back to startedAt when the input message is outside the loaded window.
+  // This avoids the old behavior where the divider often appeared between
+  // the user's input and the AI reply, or disappeared entirely for the first
+  // visible turn in the current page.
+  const turnBoundaryPlan = useMemo(() => {
+    if (!turns || turns.length === 0) {
+      return {
+        byMessageId: new Map<string, TurnInfo[]>(),
+        fallback: [] as Array<{ timestamp: string; turn: TurnInfo }>,
+      };
+    }
+
+    const messageIndex = new Map<string, number>();
+    for (let i = 0; i < messages.length; i++) {
+      messageIndex.set(messages[i].id, i);
+    }
+
+    const byMessageId = new Map<string, TurnInfo[]>();
+    const fallback: Array<{ timestamp: string; turn: TurnInfo }> = [];
+
+    for (const turn of turns) {
+      let firstVisibleMessageId: string | null = null;
+      let firstVisibleIndex = Number.POSITIVE_INFINITY;
+
+      for (const messageId of turn.messageIds) {
+        const idx = messageIndex.get(messageId);
+        if (idx == null) continue;
+        if (idx < firstVisibleIndex) {
+          firstVisibleIndex = idx;
+          firstVisibleMessageId = messageId;
+        }
+      }
+
+      if (firstVisibleMessageId) {
+        const existing = byMessageId.get(firstVisibleMessageId) || [];
+        existing.push(turn);
+        byMessageId.set(firstVisibleMessageId, existing);
+      } else {
+        fallback.push({ timestamp: turn.startedAt, turn });
+      }
+    }
+
+    for (const [messageId, group] of byMessageId.entries()) {
+      group.sort((a, b) => {
+        if (a.startedAt === b.startedAt) return a.id.localeCompare(b.id);
+        return a.startedAt.localeCompare(b.startedAt);
+      });
+      byMessageId.set(messageId, group);
+    }
+
+    fallback.sort((a, b) => {
+      if (a.timestamp === b.timestamp) return a.turn.id.localeCompare(b.turn.id);
+      return a.timestamp.localeCompare(b.timestamp);
+    });
+
+    return { byMessageId, fallback };
+  }, [turns, messages]);
 
   // Compute flatMessages (with date headers and turn boundaries) before virtualizer
   const flatMessages = useMemo<FlatItem[]>(() => {
@@ -84,9 +138,10 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
     }, {} as Record<string, Message[]>);
 
     const items: FlatItem[] = [];
-    // Time-based turn boundary insertion: advance through sorted boundaries
-    // as we iterate messages chronologically.
-    let bIdx = 0;
+    // Time-based fallback insertion: for turns whose input messages are
+    // outside the loaded window, insert based on startedAt.
+    let fallbackIdx = 0;
+    const fallbackBoundaries = turnBoundaryPlan.fallback;
 
     Object.entries(grouped).forEach(([date, msgs]) => {
       items.push({ type: 'date', content: date });
@@ -100,17 +155,34 @@ export function MessageList({ messages, loading, hasMore, onLoadMore, scrollTrig
             items.push({ type: 'error', content: msg.content.slice('agent_max_retries:'.length) });
           }
         } else {
-          // Insert any turn boundaries whose startedAt <= this message's timestamp
-          while (bIdx < turnBoundaries.length && turnBoundaries[bIdx].timestamp <= msg.timestamp) {
-            items.push({ type: 'turn_start', content: turnBoundaries[bIdx].turn });
-            bIdx++;
+          // Prefer exact anchor by input messageId
+          const anchoredTurns = turnBoundaryPlan.byMessageId.get(msg.id);
+          if (anchoredTurns?.length) {
+            for (const turn of anchoredTurns) {
+              items.push({ type: 'turn_start', content: turn });
+            }
+          }
+
+          // Fallback: Insert any turn boundaries whose startedAt <= this message's timestamp
+          while (fallbackIdx < fallbackBoundaries.length && fallbackBoundaries[fallbackIdx].timestamp <= msg.timestamp) {
+            items.push({ type: 'turn_start', content: fallbackBoundaries[fallbackIdx].turn });
+            fallbackIdx++;
           }
           items.push({ type: 'message', content: msg });
         }
       });
     });
+
+    // Tail flush: if the loaded window ends before a fallback boundary finds
+    // a later message to attach to, still render it at the end so it doesn't
+    // silently disappear.
+    while (fallbackIdx < fallbackBoundaries.length) {
+      items.push({ type: 'turn_start', content: fallbackBoundaries[fallbackIdx].turn });
+      fallbackIdx++;
+    }
+
     return items;
-  }, [messages, turnBoundaries]);
+  }, [messages, turnBoundaryPlan]);
 
   // Chat always starts at bottom — no scroll position restoration.
   // key={...} on <MessageList> guarantees a fresh mount on group/tab switch.
