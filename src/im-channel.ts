@@ -61,6 +61,15 @@ export interface IMChannelConnectOpts {
   ) => void;
 }
 
+export interface IMSendOptions {
+  /** Send as urgent/加急 message (Feishu only). */
+  urgent?: boolean;
+  /** Open IDs of users to receive urgent notification. Resolved by the main process from DB. */
+  urgentUserIds?: string[];
+  /** Reply to this specific message ID instead of the last received message (Feishu only). */
+  replyToMsgId?: string;
+}
+
 export interface IMChannel {
   readonly channelType: string;
   connect(opts: IMChannelConnectOpts): Promise<boolean>;
@@ -69,6 +78,7 @@ export interface IMChannel {
     chatId: string,
     text: string,
     localImagePaths?: string[],
+    options?: IMSendOptions,
   ): Promise<void>;
   /** Send file to chat (if supported) */
   sendFile?(chatId: string, filePath: string, fileName: string): Promise<void>;
@@ -162,6 +172,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
       chatId: string,
       text: string,
       localImagePaths?: string[],
+      options?: IMSendOptions,
     ): Promise<void> {
       if (!inner) {
         logger.warn(
@@ -170,7 +181,7 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         );
         return;
       }
-      await inner.sendMessage(chatId, text, localImagePaths);
+      await inner.sendMessage(chatId, text, localImagePaths, options);
     },
 
     async sendImage(

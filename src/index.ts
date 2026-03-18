@@ -48,6 +48,7 @@ import {
   getTaskById,
   getHomeGroupByFolder,
   getUserHomeGroup,
+  getLastInboundMessage,
   initDatabase,
   isGroupShared,
   listUsers,
@@ -80,7 +81,7 @@ import {
 } from './db.js';
 // feishu.js deprecated exports are no longer needed; imManager handles all connections
 import { imManager } from './im-manager.js';
-import { getChannelType, extractChatId } from './im-channel.js';
+import { getChannelType, extractChatId, type IMSendOptions } from './im-channel.js';
 import {
   abortAllStreamingSessions,
 } from './feishu-streaming-card.js';
@@ -453,9 +454,10 @@ function sendImWithFailTracking(
   imJid: string,
   text: string,
   localImagePaths: string[],
+  options?: IMSendOptions,
 ): void {
   imManager
-    .sendMessage(imJid, text, localImagePaths)
+    .sendMessage(imJid, text, localImagePaths, options)
     .then(() => {
       imSendFailCounts.delete(imJid);
     })
@@ -2458,10 +2460,27 @@ function startIpcWatcher(): void {
                         data.text,
                         sourceGroup,
                       );
+                      // Resolve reply target and urgent recipient from DB
+                      const lastInbound = getLastInboundMessage(
+                        data.chatJid,
+                        data.targetChannel, // source_jid = the IM channel
+                      );
+                      const sendOptions: IMSendOptions = {};
+                      // Always reply to the triggering message, not the latest in chat
+                      if (lastInbound?.id) {
+                        sendOptions.replyToMsgId = lastInbound.id;
+                      }
+                      if (data.urgent && lastInbound?.sender) {
+                        sendOptions.urgent = true;
+                        sendOptions.urgentUserIds = [lastInbound.sender];
+                      }
                       sendImWithFailTracking(
                         data.targetChannel,
                         data.text,
                         localImagePaths,
+                        Object.keys(sendOptions).length > 0
+                          ? sendOptions
+                          : undefined,
                       );
                     }
                     // 始终存 DB + 广播 Web（不发 IM）

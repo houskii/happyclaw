@@ -1694,6 +1694,25 @@ export function getUsageUsers(): Array<{ id: string; username: string }> {
   return rows;
 }
 
+/**
+ * Get the sender ID and message ID of the most recent non-bot message in a chat.
+ * Optionally filter by source_jid (e.g., "feishu:oc_xxx") for accurate
+ * attribution in multi-channel home containers.
+ * The returned `id` is the original IM message ID (e.g., feishu om_xxx).
+ */
+export function getLastInboundMessage(
+  chatJid: string,
+  sourceJid?: string,
+): { id: string; sender: string } | null {
+  const sql = sourceJid
+    ? `SELECT id, sender FROM messages WHERE chat_jid = ? AND source_jid = ? AND is_from_me = 0 ORDER BY timestamp DESC, id DESC LIMIT 1`
+    : `SELECT id, sender FROM messages WHERE chat_jid = ? AND is_from_me = 0 ORDER BY timestamp DESC, id DESC LIMIT 1`;
+  const row = sourceJid
+    ? (db.prepare(sql).get(chatJid, sourceJid) as { id: string; sender: string } | undefined)
+    : (db.prepare(sql).get(chatJid) as { id: string; sender: string } | undefined);
+  return row || null;
+}
+
 export function getNewMessages(
   jids: string[],
   cursor: MessageCursor,

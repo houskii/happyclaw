@@ -8,6 +8,7 @@
 import {
   type IMChannel,
   type IMChannelConnectOpts,
+  type IMSendOptions,
   getChannelType,
   extractChatId,
   createFeishuChannel,
@@ -124,6 +125,7 @@ class IMConnectionManager {
     jid: string,
     text: string,
     localImagePaths?: string[],
+    options?: IMSendOptions,
   ): Promise<void> {
     const channelType = getChannelType(jid);
     if (!channelType) {
@@ -134,7 +136,7 @@ class IMConnectionManager {
     const chatId = extractChatId(jid);
     const channel = this.findChannelForJid(jid, channelType);
     if (channel) {
-      await channel.sendMessage(chatId, text, localImagePaths);
+      await channel.sendMessage(chatId, text, localImagePaths, options);
       return;
     }
 

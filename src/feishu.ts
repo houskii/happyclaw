@@ -68,6 +68,15 @@ export interface FeishuChatInfo {
   chat_mode?: string; // 'p2p' | 'group'
 }
 
+export interface FeishuSendOptions {
+  /** Send as urgent/加急 notification. */
+  urgent?: boolean;
+  /** Open IDs of users to receive the urgent notification. Resolved by caller. */
+  urgentUserIds?: string[];
+  /** Reply to this specific message ID instead of the last received message. */
+  replyToMsgId?: string;
+}
+
 export interface FeishuConnection {
   connect(opts: ConnectOptions): Promise<boolean>;
   stop(): Promise<void>;
@@ -75,6 +84,7 @@ export interface FeishuConnection {
     chatId: string,
     text: string,
     localImagePaths?: string[],
+    options?: FeishuSendOptions,
   ): Promise<void>;
   sendImage(
     chatId: string,
@@ -1416,6 +1426,7 @@ export function createFeishuConnection(
       chatId: string,
       text: string,
       localImagePaths?: string[],
+      options?: FeishuSendOptions,
     ): Promise<void> {
       if (!client) {
         logger.warn(
@@ -1435,35 +1446,38 @@ export function createFeishuConnection(
       };
 
       try {
-        // Helper: send card or plain text via reply or create
-        const sendMsg = async (msgText: string) => {
+        // Helper: send card or plain text via reply or create. Returns sent message_id.
+        const sendMsg = async (msgText: string): Promise<string | undefined> => {
           const c = client!; // safe: outer guard checks client != null
           const card = buildInteractiveCard(msgText);
           const cardContent = JSON.stringify(card);
-          const lastMsgId = lastMessageIdByChat.get(chatId);
+          // Prefer explicit replyToMsgId (from the triggering message) over generic lastMessageIdByChat
+          const lastMsgId = options?.replyToMsgId || lastMessageIdByChat.get(chatId);
 
           if (lastMsgId) {
             try {
-              await c.im.message.reply({
+              const res = await c.im.message.reply({
                 path: { message_id: lastMsgId },
                 data: { content: cardContent, msg_type: 'interactive' },
               });
+              return (res as any)?.data?.message_id || (res as any)?.message_id;
             } catch (err: any) {
               logger.warn(
                 { chatId, respStatus: err?.response?.status },
                 'Feishu interactive reply failed, fallback to plain text',
               );
-              await c.im.message.reply({
+              const res = await c.im.message.reply({
                 path: { message_id: lastMsgId },
                 data: {
                   content: JSON.stringify({ text: msgText }),
                   msg_type: 'text',
                 },
               });
+              return (res as any)?.data?.message_id || (res as any)?.message_id;
             }
           } else {
             try {
-              await c.im.v1.message.create({
+              const res = await c.im.v1.message.create({
                 params: { receive_id_type: 'chat_id' },
                 data: {
                   receive_id: chatId,
@@ -1471,12 +1485,13 @@ export function createFeishuConnection(
                   content: cardContent,
                 },
               });
+              return (res as any)?.data?.message_id || (res as any)?.message_id;
             } catch (err: any) {
               logger.warn(
                 { chatId, respStatus: err?.response?.status },
                 'Feishu interactive create failed, fallback to plain text',
               );
-              await c.im.v1.message.create({
+              const res = await c.im.v1.message.create({
                 params: { receive_id_type: 'chat_id' },
                 data: {
                   receive_id: chatId,
@@ -1484,12 +1499,14 @@ export function createFeishuConnection(
                   content: JSON.stringify({ text: msgText }),
                 },
               });
+              return (res as any)?.data?.message_id || (res as any)?.message_id;
             }
           }
         };
 
+        let sentMsgId: string | undefined;
         try {
-          await sendMsg(text);
+          sentMsgId = await sendMsg(text);
         } catch (outerErr: any) {
           // Feishu content audit (error 230028) flags patterns like "user@domain"
           // as sensitive data (EMAIL_ADDRESS). Replace @ with fullwidth ＠ and retry.
@@ -1502,7 +1519,7 @@ export function createFeishuConnection(
                 /([a-zA-Z0-9._%+\-]+)@([a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g,
                 '$1\uFF20$2',
               );
-              await sendMsg(sanitized + '\n\n> ⚠️ 消息中的 @ 已被替换为全角＠以通过飞书安全审计，请注意复制时替换回半角 @');
+              sentMsgId = await sendMsg(sanitized + '\n\n> ⚠️ 消息中的 @ 已被替换为全角＠以通过飞书安全审计，请注意复制时替换回半角 @');
             } catch (retryErr) {
               logger.error({ chatId, err: retryErr }, 'Feishu audit 230028 fullwidth @ retry also failed');
               throw outerErr;
@@ -1513,6 +1530,26 @@ export function createFeishuConnection(
         }
         logger.debug({ chatId }, 'Sent Feishu card message');
         clearAckReaction();
+
+        // Send urgent/加急 notification if requested
+        if (options?.urgent && sentMsgId && client) {
+          const userIds = options.urgentUserIds?.filter(Boolean);
+          if (userIds?.length) {
+            try {
+              await client.request({
+                method: 'PATCH',
+                url: `/open-apis/im/v1/messages/${sentMsgId}/urgent_app`,
+                params: { user_id_type: 'open_id' },
+                data: { user_id_list: userIds },
+              });
+              logger.info({ chatId, sentMsgId, userIds }, 'Sent Feishu urgent notification');
+            } catch (urgentErr) {
+              logger.warn({ chatId, sentMsgId, err: urgentErr }, 'Failed to send Feishu urgent notification');
+            }
+          } else {
+            logger.debug({ chatId }, 'No user IDs provided for urgent notification');
+          }
+        }
 
         for (const localImagePath of localImagePaths || []) {
           try {

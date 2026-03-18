@@ -66,6 +66,12 @@ export function createMcpTools(ctx: McpContext): SdkMcpToolDefinition<any>[] {
           .describe(
             "Target IM channel, taken from the message's source attribute (e.g. 'feishu:oc_xxx', 'telegram:123'). Omit to only display in Web UI.",
           ),
+        urgent: z
+          .boolean()
+          .optional()
+          .describe(
+            'Send as urgent/加急 message (Feishu only). The recipient will receive a push notification with buzzing. Use sparingly — only for time-sensitive interactions like QR code scanning, verification codes, or authorization confirmations.',
+          ),
       },
       async (args) => {
         const data = {
@@ -73,6 +79,7 @@ export function createMcpTools(ctx: McpContext): SdkMcpToolDefinition<any>[] {
           chatJid: ctx.chatJid,
           text: args.text,
           targetChannel: args.channel,
+          urgent: args.urgent || false,
           groupFolder: ctx.groupFolder,
           timestamp: new Date().toISOString(),
         };
