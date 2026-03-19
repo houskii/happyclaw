@@ -4055,8 +4055,25 @@ function buildOnNewChat(
   return (chatJid, chatName, chatType) => {
     const existing = registeredGroups[chatJid];
     if (existing) {
-      // Already owned by this user — nothing to do
-      if (existing.created_by === userId) return;
+      // Already owned by this user — update names if we now have a better name
+      if (existing.created_by === userId) {
+        if (chatName && chatName !== '飞书群聊' && chatName !== '飞书私聊') {
+          // Update the IM chat name (chats table)
+          updateChatName(chatJid, chatName);
+          // Update the bound workspace name if it still has the generic name
+          if (existing.target_main_jid && existing.target_main_jid !== `web:${homeFolder}`) {
+            const targetGroup = registeredGroups[existing.target_main_jid];
+            if (targetGroup && (!targetGroup.name || targetGroup.name === '飞书群聊')) {
+              // Update registered_groups name (used by /api/groups)
+              targetGroup.name = chatName;
+              setRegisteredGroup(existing.target_main_jid, targetGroup);
+              // Update chats table name (used by some UI paths)
+              updateChatName(existing.target_main_jid, chatName);
+            }
+          }
+        }
+        return;
+      }
 
       // Don't override groups with explicit agent routing configured.
       if (existing.target_agent_id) return;
@@ -4127,6 +4144,22 @@ function buildOnNewChat(
         { chatJid, chatName, userId, newFolder: folder, newJid },
         'Auto-created workspace for IM group chat',
       );
+
+      // 如果群名未能获取（通用名），在工作区写一条系统提示
+      if (chatName === '飞书群聊') {
+        storeMessageDirect(
+          `system-${Date.now()}`,
+          newJid,
+          'system',
+          '系统',
+          '⚠️ 无法获取飞书群名称，工作区暂时命名为"飞书群聊"。请在飞书开放平台为应用开通 `im:chat:readonly` 权限后，发送新消息即可自动更新名称。',
+          now,
+          true,
+        );
+        broadcastToWebClients(newJid,
+          '⚠️ 无法获取飞书群名称，工作区暂时命名为"飞书群聊"。请在飞书开放平台为应用开通 `im:chat:readonly` 权限后，发送新消息即可自动更新名称。',
+        );
+      }
     } else {
       // Default: route to home
       registerGroup(chatJid, {

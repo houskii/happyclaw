@@ -483,6 +483,7 @@ export function createFeishuConnection(
   const typingReactionByChat = new Map<string, string>();
   const knownChatIds = new Set<string>();
   const chatTypeById = new Map<string, string>(); // chatId → 'group' | 'p2p'
+  const chatNameById = new Map<string, string>(); // chatId → group name (from API/events)
   const lastCreateTimeByChat = new Map<string, number>();
 
   let client: lark.Client | null = null;
@@ -888,7 +889,31 @@ export function createFeishuConnection(
 
     const chatJid = `feishu:${chatId}`;
     const resolvedSenderName = senderName || getSenderName(senderOpenId);
-    const resolvedChatName = chatType === 'p2p' ? '飞书私聊' : '飞书群聊';
+
+    // 解析群名：优先缓存，缓存未命中时同步获取（确保 onNewChat 拿到真实群名）
+    let resolvedChatName: string;
+    if (chatType === 'p2p') {
+      resolvedChatName = '飞书私聊';
+    } else {
+      let groupName = chatNameById.get(chatId);
+      if (!groupName && client) {
+        try {
+          const res = await client.im.v1.chat.get({ path: { chat_id: chatId } });
+          if (res.data?.name) {
+            groupName = res.data.name;
+            chatNameById.set(chatId, groupName);
+          }
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg.includes('99991672') || errMsg.includes('im:chat')) {
+            logger.warn({ chatId }, '无法获取飞书群名称：应用缺少 im:chat:readonly 权限');
+          } else {
+            logger.warn({ chatId, err: errMsg }, '获取飞书群名称失败');
+          }
+        }
+      }
+      resolvedChatName = groupName ? `飞书-${groupName}` : '飞书群聊';
+    }
 
     // 先注册会话，确保 resolveGroupFolder 能正确解析 folder（含首条文件消息场景）
     onNewChat?.(chatJid, resolvedChatName, chatType === 'p2p' ? 'p2p' : 'group');
@@ -1426,6 +1451,7 @@ export function createFeishuConnection(
             if (!chatId) return;
             const chatJid = `feishu:${chatId}`;
             const chatName = data.name || '飞书群聊';
+            if (data.name) chatNameById.set(chatId, data.name);
             logger.info({ chatJid, chatName }, 'Bot added to Feishu group');
             connectOptions?.onBotAddedToGroup?.(chatJid, chatName);
           } catch (err) {
@@ -1900,6 +1926,7 @@ export function createFeishuConnection(
             if (chat.chat_id && chat.name) {
               updateChatName(`feishu:${chat.chat_id}`, chat.name);
               knownChatIds.add(chat.chat_id);
+              chatNameById.set(chat.chat_id, chat.name);
             }
           }
 
