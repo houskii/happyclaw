@@ -19,6 +19,7 @@ import type { FeishuConnectionConfig } from './feishu.js';
 import type { TelegramConnectionConfig } from './telegram.js';
 import type { QQConnectionConfig } from './qq.js';
 import type { StreamingCardController } from './feishu-streaming-card.js';
+import type { ProgressCardController } from './feishu-progress-card.js';
 import { getRegisteredGroup, getJidsByFolder } from './db.js';
 import { logger } from './logger.js';
 
@@ -226,6 +227,22 @@ class IMConnectionManager {
     const channel = this.findChannelForJid(jid, channelType);
     if (channel?.createStreamingSession) {
       return channel.createStreamingSession(chatId);
+    }
+    return undefined;
+  }
+
+  /**
+   * Create a progress card for an IM chat (Feishu only).
+   * Returns undefined for non-Feishu channels or if not supported.
+   */
+  createProgressCard(jid: string): ProgressCardController | undefined {
+    const channelType = getChannelType(jid);
+    if (channelType !== 'feishu') return undefined;
+
+    const chatId = extractChatId(jid);
+    const channel = this.findChannelForJid(jid, channelType);
+    if (channel?.createProgressCard) {
+      return channel.createProgressCard(chatId);
     }
     return undefined;
   }

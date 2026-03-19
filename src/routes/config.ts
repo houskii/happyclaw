@@ -1381,12 +1381,14 @@ configRoutes.get('/user-im/feishu', authMiddleware, (c) => {
         updatedAt: null,
         connected,
         replyThreadingMode: 'auto',
+        streamingCard: false,
       });
     }
     return c.json({
       ...toPublicFeishuProviderConfig(config, 'runtime'),
       connected,
       replyThreadingMode: config.replyThreadingMode ?? 'auto',
+      streamingCard: config.streamingCard ?? false,
     });
   } catch (err) {
     logger.error({ err }, 'Failed to load user Feishu config');
@@ -1421,12 +1423,13 @@ configRoutes.put('/user-im/feishu', authMiddleware, async (c) => {
   }
 
   const current = getUserFeishuConfig(user.id);
-  const next: { appId: string; appSecret: string; enabled: boolean; updatedAt: string | null; replyThreadingMode?: 'auto' | 'agent' } = {
+  const next: { appId: string; appSecret: string; enabled: boolean; updatedAt: string | null; replyThreadingMode?: 'auto' | 'agent'; streamingCard?: boolean } = {
     appId: current?.appId || '',
     appSecret: current?.appSecret || '',
     enabled: current?.enabled ?? true,
     updatedAt: current?.updatedAt || null,
     replyThreadingMode: current?.replyThreadingMode ?? 'auto',
+    streamingCard: current?.streamingCard ?? false,
   };
   if (typeof validation.data.appId === 'string') {
     const appId = validation.data.appId.trim();
@@ -1447,6 +1450,9 @@ configRoutes.put('/user-im/feishu', authMiddleware, async (c) => {
   if (validation.data.replyThreadingMode) {
     next.replyThreadingMode = validation.data.replyThreadingMode;
   }
+  if (typeof validation.data.streamingCard === 'boolean') {
+    next.streamingCard = validation.data.streamingCard;
+  }
 
   try {
     const saved = saveUserFeishuConfig(user.id, {
@@ -1454,6 +1460,7 @@ configRoutes.put('/user-im/feishu', authMiddleware, async (c) => {
       appSecret: next.appSecret,
       enabled: next.enabled,
       replyThreadingMode: next.replyThreadingMode,
+      streamingCard: next.streamingCard,
     });
 
     // Hot-reload: reconnect user's Feishu channel
@@ -1473,6 +1480,7 @@ configRoutes.put('/user-im/feishu', authMiddleware, async (c) => {
       ...toPublicFeishuProviderConfig(saved, 'runtime'),
       connected,
       replyThreadingMode: saved.replyThreadingMode ?? 'auto',
+      streamingCard: saved.streamingCard ?? false,
     });
   } catch (err) {
     const message =

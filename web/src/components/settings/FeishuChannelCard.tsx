@@ -16,6 +16,7 @@ interface UserFeishuConfig {
   connected: boolean;
   updatedAt: string | null;
   replyThreadingMode?: 'auto' | 'agent';
+  streamingCard?: boolean;
 }
 
 interface OAuthStatus {
@@ -92,6 +93,7 @@ export function FeishuChannelCard({ setNotice, setError }: FeishuChannelCardProp
   const [oauthStatus, setOauthStatus] = useState<OAuthStatus | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
   const [savingThreadingMode, setSavingThreadingMode] = useState(false);
+  const [savingStreamingCard, setSavingStreamingCard] = useState(false);
 
   const enabled = config?.enabled ?? false;
 
@@ -360,6 +362,39 @@ export function FeishuChannelCard({ setNotice, setError }: FeishuChannelCardProp
                     }
                   }}
                   aria-label="Agent 自主回复模式"
+                />
+              </div>
+            </div>
+
+            {/* Streaming Progress Card */}
+            <div className="pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <h4 className="text-xs font-semibold text-slate-700">执行进度卡片</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    开启后在飞书中实时显示 Agent 的工具调用和执行状态（卡片形式，完成后自动删除）。
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={config?.streamingCard ?? false}
+                  disabled={savingStreamingCard}
+                  onChange={async (v) => {
+                    setSavingStreamingCard(true);
+                    setNotice(null);
+                    setError(null);
+                    try {
+                      const data = await api.put<UserFeishuConfig>('/api/config/user-im/feishu', {
+                        streamingCard: v,
+                      });
+                      setConfig(data);
+                      setNotice(`执行进度卡片已${v ? '开启' : '关闭'}`);
+                    } catch (err) {
+                      setError(getErrorMessage(err, '切换进度卡片失败'));
+                    } finally {
+                      setSavingStreamingCard(false);
+                    }
+                  }}
+                  aria-label="执行进度卡片"
                 />
               </div>
             </div>

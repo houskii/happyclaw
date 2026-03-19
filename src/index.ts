@@ -88,6 +88,12 @@ import { imManager } from './im-manager.js';
 import { getChannelType, extractChatId, type IMSendOptions } from './im-channel.js';
 import { abortAllStreamingSessions } from './feishu-streaming-card.js';
 import {
+  type ProgressCardController,
+  registerProgressSession,
+  unregisterProgressSession,
+  abortAllProgressSessions,
+} from './feishu-progress-card.js';
+import {
   formatContextMessages,
   formatWorkspaceList,
   formatSystemStatus,
@@ -1864,6 +1870,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
   triggerMessagesByFolder.set(effectiveGroup.folder, triggerMap);
 
+  // Create Feishu progress card if enabled for this user
+  let progressCard: ProgressCardController | undefined;
+  const sourceChannel = resolveChannel(missedMessages);
+  if (
+    ownerUserId &&
+    getChannelType(sourceChannel) === 'feishu' &&
+    getUserFeishuConfig(ownerUserId)?.streamingCard
+  ) {
+    progressCard = imManager.createProgressCard(sourceChannel);
+    if (progressCard) {
+      registerProgressSession(chatJid, progressCard);
+    }
+  }
+
   let wasInterrupted = false;
   const output = await runAgent(
     effectiveGroup,
@@ -1878,6 +1898,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           streamingBlocksManager
             .getOrCreate(group.folder)
             .feed(result.streamEvent);
+          // Feed progress card (Feishu real-time tool trace)
+          if (progressCard) {
+            progressCard.feedEvent(result.streamEvent);
+          }
           turnObservabilityManager.feedEvent(
             group.folder,
             result.streamEvent,
@@ -2186,6 +2210,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   await setTyping(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
   clearIpcDeliveryTracker(chatJid);
+
+  // Complete or abort the Feishu progress card
+  if (progressCard) {
+    const isError = output.status === 'error' || hadError;
+    if (isError || wasInterrupted) {
+      await progressCard.abort(isError ? '执行出错' : '已中断').catch(() => {});
+    } else {
+      await progressCard.complete().catch(() => {});
+    }
+    progressCard.dispose();
+    unregisterProgressSession(chatJid);
+  }
 
   // Agent 进程已退出：通知前端清除流式状态（"正在思考..."）。
   // 正常有回复时前端已通过 new_message/agent_reply 清理，这里作为兜底确保
@@ -4750,12 +4786,15 @@ async function main(): Promise<void> {
     } catch (err) {
       logger.warn({ err }, 'Error shutting down terminals');
     }
-    // Abort all active streaming cards before disconnecting IM,
-    // so users see "服务维护中" instead of a stuck "生成中..." card.
+    // Abort all active streaming/progress cards before disconnecting IM,
+    // so users see "服务维护中" instead of a stuck card.
     try {
-      await abortAllStreamingSessions('服务维护中');
+      await Promise.allSettled([
+        abortAllStreamingSessions('服务维护中'),
+        abortAllProgressSessions('服务维护中'),
+      ]);
     } catch (err) {
-      logger.warn({ err }, 'Error aborting streaming sessions');
+      logger.warn({ err }, 'Error aborting streaming/progress sessions');
     }
     try {
       await imManager.disconnectAll();

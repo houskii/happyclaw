@@ -24,6 +24,10 @@ import {
   StreamingCardController,
   type StreamingCardOptions,
 } from './feishu-streaming-card.js';
+import {
+  ProgressCardController,
+  type ProgressCardOptions,
+} from './feishu-progress-card.js';
 
 // ─── Unified Interface ──────────────────────────────────────────
 
@@ -94,6 +98,8 @@ export interface IMChannel {
   syncGroups?(): Promise<void>;
   /** Create a streaming card session for real-time card updates (Feishu only) */
   createStreamingSession?(chatId: string): StreamingCardController | undefined;
+  /** Create a progress card for real-time tool execution display (Feishu only) */
+  createProgressCard?(chatId: string): ProgressCardController | undefined;
   getChatInfo?(chatId: string): Promise<{
     avatar?: string;
     name?: string;
@@ -248,6 +254,20 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         replyToMsgId: inner.getLastMessageId(chatId),
       };
       return new StreamingCardController(opts);
+    },
+
+    createProgressCard(
+      chatId: string,
+    ): ProgressCardController | undefined {
+      if (!inner) return undefined;
+      const larkClient = inner.getLarkClient();
+      if (!larkClient) return undefined;
+      const opts: ProgressCardOptions = {
+        client: larkClient,
+        chatId,
+        replyToMsgId: inner.getLastMessageId(chatId),
+      };
+      return new ProgressCardController(opts);
     },
   };
 
