@@ -644,7 +644,7 @@ function buildMemoryRecallPrompt(isHome: boolean, _isAdminHome: boolean): string
 
     if (indexContent) {
       parts.push(
-        '你的随身索引已加载：',
+        '你的随身索引已加载（这是经过压缩的快速参考，条目可能不完整。涉及具体事实时，建议通过 memory_query 确认）：',
         '',
         '<memory-index>',
         indexContent,
@@ -684,8 +684,10 @@ function buildMemoryRecallPrompt(isHome: boolean, _isAdminHome: boolean): string
       '- 用户在考你/测试你的记忆时',
       '- compact summary 或随身索引中的信息不够详细，需要深入了解时',
       '',
-      '随身索引和 compact summary 可以作为快速参考。如果其中已有一些信息，你可以先给出快速印象，',
+      '随身索引是快速参考，但**不是权威事实来源**。索引条目经过压缩，可能丢失限定条件或上下文。',
+      '如果索引中已有一些信息，你可以先给出快速印象，',
       '然后询问用户要不要让你深入想想（调用 memory_query 获取完整细节）。',
+      '涉及具体事实（日期、数字、决策结论）时，优先通过 memory_query 确认后再回答。',
       '',
       '**重要：查询通常需要 1-2 分钟。** 发起查询前，先给用户发一条消息（如「让我好好想想……」「我去翻翻记忆～」），',
       '避免用户以为你卡死了。如果是 IM 渠道，用 send_message 发送提示后再调用 memory_query。',

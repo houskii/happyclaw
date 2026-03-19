@@ -23,7 +23,7 @@ import { logger } from '../logger.js';
 import { GROUPS_DIR, DATA_DIR } from '../config.js';
 import type { AuthUser } from '../types.js';
 import type { MemoryAgentManager } from '../memory-agent.js';
-import { readMemoryState, exportTranscriptsForUser } from '../memory-agent.js';
+import { readMemoryState, writeMemoryState, exportTranscriptsForUser } from '../memory-agent.js';
 
 import type { GroupQueue } from '../group-queue.js';
 
@@ -161,6 +161,7 @@ function classifyAgentMemoryLabel(ownerLabel: string, subPath: string): string {
   if (!subPath || subPath === 'index.md') return `${ownerLabel} / 随身索引`;
   if (subPath === 'personality.md') return `${ownerLabel} / 性格记录`;
   if (subPath === 'state.json') return `${ownerLabel} / 系统元数据`;
+  if (subPath === 'meta.json') return `${ownerLabel} / 记忆元数据`;
   if (subPath.startsWith('knowledge/')) {
     const name = subPath.slice('knowledge/'.length);
     return `${ownerLabel} / 知识库 / ${name}`;
@@ -770,6 +771,11 @@ memoryRoutes.post('/trigger-global-sleep', authMiddleware, async (c) => {
   activeGlobalSleeps.add(user.id);
   try {
     await injectedManager.send(user.id, { type: 'global_sleep' });
+    // Main process updates state.json after successful global_sleep
+    const updatedState = readMemoryState(user.id);
+    updatedState.lastGlobalSleep = new Date().toISOString();
+    updatedState.pendingWrapups = [];
+    writeMemoryState(user.id, updatedState);
     return c.json({ success: true, message: '深度整理已完成' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

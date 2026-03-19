@@ -74,10 +74,13 @@ const INDEX_MD_TEMPLATE = `# 随身索引
 
 > 本文件是记忆系统的随身索引，主 Agent 每次对话自动加载。
 > 只放索引条目，不放具体内容。超限时 compact，不丢弃。
+> 每条索引必须以 [YYYY-MM-DD] 开头，可选标记：⚑（高重要性）、∞（永久）
 
 ## 关于用户 (~30)
 
 （暂无记录）
+<!-- 示例：[2026-03-01|∞] 后端工程师，主要用 Go 和 TypeScript -->
+<!-- 示例：[2026-03-10|⚑] 近期在考虑转岗到基础设施团队 -->
 
 ## 活跃话题 (~50)
 
@@ -101,9 +104,13 @@ const INITIAL_STATE: Record<string, unknown> = {
   lastSessionWrapupAt: null,
   lastSessionWrapups: {},
   pendingWrapups: [],
+};
+
+const INITIAL_META: Record<string, unknown> = {
   indexVersion: 0,
   totalImpressions: 0,
   totalKnowledgeFiles: 0,
+  pendingMaintenance: [],
 };
 
 /**
@@ -136,6 +143,51 @@ export function ensureMemoryDir(userId: string): string {
     logger.info({ userId }, 'Created initial state.json for memory');
   }
 
+  // Create meta.json if missing (with migration from old state.json)
+  const metaPath = path.join(memDir, 'meta.json');
+  if (!fs.existsSync(metaPath)) {
+    // Check if state.json contains old LLM-managed fields to migrate
+    let meta: Record<string, unknown> = { ...INITIAL_META };
+    try {
+      const existingState = JSON.parse(
+        fs.readFileSync(statePath, 'utf-8'),
+      );
+      const hasOldFields =
+        'indexVersion' in existingState ||
+        'totalImpressions' in existingState ||
+        'totalKnowledgeFiles' in existingState;
+
+      if (hasOldFields) {
+        // Extract LLM fields into meta
+        meta = {
+          indexVersion: existingState.indexVersion ?? 0,
+          totalImpressions: existingState.totalImpressions ?? 0,
+          totalKnowledgeFiles: existingState.totalKnowledgeFiles ?? 0,
+          pendingMaintenance: existingState.pendingMaintenance ?? [],
+        };
+        // Remove LLM fields from state.json to prevent LLM from seeing them
+        delete existingState.indexVersion;
+        delete existingState.totalImpressions;
+        delete existingState.totalKnowledgeFiles;
+        delete existingState.pendingMaintenance;
+        writeMemoryState(userId, existingState);
+        logger.info(
+          { userId },
+          'Migrated LLM fields from state.json to meta.json',
+        );
+      }
+    } catch {
+      /* state.json parse error — use defaults */
+    }
+
+    fs.writeFileSync(
+      metaPath,
+      JSON.stringify(meta, null, 2) + '\n',
+      'utf-8',
+    );
+    logger.info({ userId }, 'Created meta.json for memory');
+  }
+
   return memDir;
 }
 
@@ -165,6 +217,34 @@ export function writeMemoryState(
   const tmp = `${statePath}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', 'utf-8');
   fs.renameSync(tmp, statePath);
+}
+
+/**
+ * Read the memory meta.json for a user (LLM-managed metadata).
+ */
+export function readMemoryMeta(userId: string): Record<string, unknown> {
+  const metaPath = path.join(DATA_DIR, 'memory', userId, 'meta.json');
+  try {
+    if (fs.existsSync(metaPath)) {
+      return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    }
+  } catch {
+    /* ignore parse errors */
+  }
+  return { ...INITIAL_META };
+}
+
+/**
+ * Write the memory meta.json for a user (atomic write).
+ */
+export function writeMemoryMeta(
+  userId: string,
+  meta: Record<string, unknown>,
+): void {
+  const metaPath = path.join(DATA_DIR, 'memory', userId, 'meta.json');
+  const tmp = `${metaPath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(meta, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmp, metaPath);
 }
 
 // --- Channel label resolution ---
@@ -916,9 +996,15 @@ export function runMemoryGlobalSleepIfNeeded(deps: GlobalSleepDeps): void {
       deps.manager
         .send(user.id, { type: 'global_sleep' })
         .then(() => {
+          // Main process updates state.json after successful global_sleep
+          // (LLM no longer touches state.json — it only manages meta.json)
+          const updatedState = readMemoryState(user.id);
+          updatedState.lastGlobalSleep = new Date().toISOString();
+          updatedState.pendingWrapups = [];
+          writeMemoryState(user.id, updatedState);
           logger.info(
             { userId: user.id },
-            'Memory Agent global_sleep completed',
+            'Memory Agent global_sleep completed, state updated',
           );
         })
         .catch((err) => {
