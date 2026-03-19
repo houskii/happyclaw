@@ -177,6 +177,11 @@ const STUCK_RUNNER_CHECK_INTERVAL_POLLS = 15;
 const STUCK_RUNNER_IDLE_MS = 6 * 60 * 1000;
 let stuckRunnerCheckCounter = 0;
 
+// OOM auto-recovery: track consecutive OOM (exit code 137) exits per folder.
+// After OOM_AUTO_RESET_THRESHOLD consecutive OOMs, auto-clear the session.
+const consecutiveOomExits: Record<string, number> = {};
+const OOM_AUTO_RESET_THRESHOLD = 2;
+
 // Per-folder reply route updater: lets sendMessage callers update the
 // reply routing of a running processGroupMessages without killing the process.
 // Key is group folder (one active processGroupMessages per folder).
@@ -1610,6 +1615,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let lastError = '';
   let cursorCommitted = false;
   let lastReplyMsgId: string | undefined;
+  let lastSavedTurnId: string | undefined;  // tracks last turnId saved to DB, prevents UPSERT overwrite
   const queryTaskIds = new Set<string>();
   const lastProcessed = missedMessages[missedMessages.length - 1];
 
@@ -2071,6 +2077,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               (result.sourceKind === 'compact_partial' || result.sourceKind === 'overflow_partial')
             ) {
               unregisterStreamingSession(streamingSessionJid);
+              streamingAccumulatedText = '';
               streamingSession = imManager.createStreamingSession(
                 streamingSessionJid,
                 makeOnCardCreated(streamingSessionJid),
@@ -2091,17 +2098,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             // Any send_message content is delivered independently via IPC watcher.
             const routeSwitchedAway = directImReply && replySourceImJid !== null && replySourceImJid !== chatJid;
             const skipImSend = (streamingCardHandledIM && directImReply) || routeSwitchedAway;
+            // When the container stays alive and processes multiple IPC messages,
+            // result.turnId stays the same (set at container start).  If we already
+            // saved a reply with this turnId, the INSERT OR REPLACE would overwrite
+            // the previous reply.  Use a fresh ID to prevent that.
+            const effectiveTurnId = (result.turnId || lastProcessed.id);
+            const turnIdForDb = (sentReply && effectiveTurnId === lastSavedTurnId)
+              ? undefined  // no turnId → fresh INSERT, no UPSERT dedup
+              : effectiveTurnId;
+
             lastReplyMsgId = await sendMessage(chatJid, text, {
               sendToIM: directImReply && !skipImSend,
               localImagePaths,
               messageMeta: {
-                turnId: result.turnId || lastProcessed.id,
+                turnId: turnIdForDb,
                 sessionId: result.sessionId || activeSessionId,
                 sdkMessageUuid: result.sdkMessageUuid,
                 sourceKind: result.sourceKind || 'sdk_final',
                 finalizationReason: result.finalizationReason || 'completed',
               },
             });
+            lastSavedTurnId = effectiveTurnId;
 
             // For routed IM (web JID with IM source), skip the source channel
             // if streaming card handled it. send_message content is already
@@ -2363,6 +2380,45 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return true;
     }
 
+    // ── OOM auto-recovery: detect consecutive exit code 137 (SIGKILL/OOM) ──
+    const isOom = /code 137|signal SIGKILL/.test(errorDetail);
+    if (isOom) {
+      const folder = effectiveGroup.folder;
+      consecutiveOomExits[folder] = (consecutiveOomExits[folder] || 0) + 1;
+      logger.warn(
+        { folder, consecutive: consecutiveOomExits[folder], threshold: OOM_AUTO_RESET_THRESHOLD },
+        'OOM exit detected (code 137)',
+      );
+
+      if (consecutiveOomExits[folder] >= OOM_AUTO_RESET_THRESHOLD) {
+        logger.warn(
+          { folder, consecutive: consecutiveOomExits[folder] },
+          'Consecutive OOM threshold reached, auto-resetting session to break death loop',
+        );
+        consecutiveOomExits[folder] = 0;
+
+        // Clear session files and DB records (same as unrecoverable_transcript handling)
+        await clearSessionRuntimeFiles(folder);
+        try {
+          deleteSession(folder);
+          delete sessions[folder];
+        } catch (err) {
+          logger.error({ folder, err }, 'Failed to clear session during OOM auto-reset');
+        }
+
+        sendSystemMessage(
+          chatJid,
+          'context_reset',
+          '会话文件过大导致内存溢出（OOM），已自动重置会话。之前的对话上下文已清除，请重新描述您的需求。',
+        );
+        commitCursor();
+        return true;
+      }
+    } else {
+      // Non-OOM error: reset the consecutive counter
+      delete consecutiveOomExits[effectiveGroup.folder];
+    }
+
     sendSystemMessage(chatJid, 'agent_error', errorDetail);
     logger.warn(
       { group: group.name, error: errorDetail },
@@ -2370,6 +2426,9 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     );
     return false;
   }
+
+  // Reset OOM counter on successful exit
+  delete consecutiveOomExits[effectiveGroup.folder];
 
   // Final fallback for silent-success paths (no visible reply).
   commitCursor();

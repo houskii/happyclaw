@@ -20,6 +20,7 @@ import {
   getGroupsByTargetAgent,
   setRegisteredGroup,
   getJidsByFolder,
+  updateAgentLastImJid,
 } from '../db.js';
 import { DATA_DIR } from '../config.js';
 import type { RegisteredGroup, SubAgent } from '../types.js';
@@ -502,6 +503,9 @@ router.delete(
       const groups = deps.getRegisteredGroups();
       if (groups[imJid]) groups[imJid] = updated;
     }
+
+    // Clear persisted IM routing so restart won't route to unbound channel (#225)
+    updateAgentLastImJid(agentId, null);
 
     logger.info(
       { imJid, agentId, userId: user.id },
