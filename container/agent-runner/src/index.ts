@@ -354,13 +354,92 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
 }
 
 /**
- * Archive the full transcript to conversations/ before compaction.
+ * Trim session JSONL file by removing all entries before the last compact_boundary.
+ * After compaction, entries before the boundary are already summarized and no longer
+ * needed for session reconstruction. This prevents unbounded file growth.
+ *
+ * Safety: uses atomic write (tmp + rename) to avoid data loss on crash.
  */
-function createPreCompactHook(isHome: boolean, _isAdminHome: boolean): HookCallback {
+function trimSessionJsonl(jsonlPath: string): void {
+  try {
+    const content = fs.readFileSync(jsonlPath, 'utf-8');
+    const lines = content.split('\n');
+    const nonEmptyLines: { index: number; line: string }[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim()) nonEmptyLines.push({ index: i, line: lines[i] });
+    }
+
+    // Find the last compact_boundary entry
+    let lastBoundaryPos = -1;
+    for (let i = nonEmptyLines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(nonEmptyLines[i].line);
+        if (entry.type === 'system' && entry.subtype === 'compact_boundary') {
+          lastBoundaryPos = i;
+          break;
+        }
+      } catch {}
+    }
+
+    if (lastBoundaryPos <= 0) {
+      // No boundary found or it's already the first entry — nothing to trim
+      log('Session trim: no compact_boundary found or already minimal');
+      return;
+    }
+
+    // Keep entries from last compact_boundary onwards
+    const trimmedLines = nonEmptyLines.slice(lastBoundaryPos).map(e => e.line);
+    const removedCount = lastBoundaryPos;
+
+    if (removedCount < 50) {
+      // Not worth trimming for small files
+      log(`Session trim: only ${removedCount} entries before boundary, skipping`);
+      return;
+    }
+
+    // Atomic write: temp file + rename
+    const tmpPath = jsonlPath + '.trim-tmp';
+    fs.writeFileSync(tmpPath, trimmedLines.join('\n') + '\n');
+    fs.renameSync(tmpPath, jsonlPath);
+
+    const sizeBefore = Buffer.byteLength(content, 'utf-8');
+    const sizeAfter = fs.statSync(jsonlPath).size;
+    log(`Session trim: ${nonEmptyLines.length} → ${trimmedLines.length} entries (removed ${removedCount}), ` +
+        `${(sizeBefore / 1024 / 1024).toFixed(1)}MB → ${(sizeAfter / 1024 / 1024).toFixed(1)}MB`);
+  } catch (err) {
+    log(`Session trim failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Archive the full transcript to conversations/ before compaction.
+ * Also flush any accumulated streaming text as a compact_partial message
+ * so users don't lose the response that was being generated.
+ * Finally, trim the JSONL file to remove already-compacted history.
+ */
+function createPreCompactHook(
+  isHome: boolean,
+  _isAdminHome: boolean,
+  deps: { emit: (output: ContainerOutput) => void; getFullText: () => string; resetFullText: () => void },
+): HookCallback {
   return async (input, _toolUseId, _context) => {
     const preCompact = input as PreCompactHookInput;
     const transcriptPath = preCompact.transcript_path;
     const sessionId = preCompact.session_id;
+
+    // ── Flush accumulated streaming text as compact_partial ──
+    // This ensures users see the partial response even after compaction.
+    const partialText = deps.getFullText();
+    if (partialText.trim()) {
+      log(`PreCompact: flushing ${partialText.length} chars as compact_partial`);
+      deps.emit({
+        status: 'success',
+        result: partialText,
+        sourceKind: 'compact_partial',
+        finalizationReason: 'completed',
+      });
+      deps.resetFullText();
+    }
 
     if (!transcriptPath || !fs.existsSync(transcriptPath)) {
       log('No transcript found for archiving');
@@ -393,6 +472,11 @@ function createPreCompactHook(isHome: boolean, _isAdminHome: boolean): HookCallb
     } catch (err) {
       log(`Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    // ── Trim session JSONL to prevent unbounded growth ──
+    // Remove entries before the last compact_boundary (already summarized).
+    // Must run AFTER archiving (archive needs full transcript).
+    trimSessionJsonl(transcriptPath);
 
     // Flag memory flush for home containers (full memory write access)
     if (isHome) {
@@ -986,7 +1070,11 @@ async function runQuery(
         happyclaw: mcpServerConfig,  // 内置 SDK MCP 放最后，确保不被同名覆盖
       },
       hooks: {
-        PreCompact: [{ hooks: [createPreCompactHook(isHome, isAdminHome)] }]
+        PreCompact: [{ hooks: [createPreCompactHook(isHome, isAdminHome, {
+          emit,
+          getFullText: () => processor.getFullText(),
+          resetFullText: () => processor.resetFullTextAccumulator(),
+        })] }]
       },
       agents: PREDEFINED_AGENTS,
     }

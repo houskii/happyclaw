@@ -2529,7 +2529,8 @@ export function getMessagesAfterMulti(
   const placeholders = chatJids.map(() => '?').join(',');
   const rows = db
     .prepare(
-      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage
+      `SELECT id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me, attachments, token_usage,
+              turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
        FROM messages
        WHERE chat_jid IN (${placeholders}) AND timestamp > ?
        ORDER BY timestamp ASC

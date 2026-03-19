@@ -844,6 +844,10 @@ export class StreamingCardController {
    * Complete the streaming card with final text.
    */
   async complete(finalText: string): Promise<void> {
+    logger.info(
+      { chatId: this.chatId, state: this.state, messageId: this.messageId, textLen: finalText.length },
+      '[DEBUG-IM-SEND] StreamingCard.complete called',
+    );
     if (this.state !== 'streaming' && this.state !== 'creating') return;
 
     this.accumulatedText = finalText;

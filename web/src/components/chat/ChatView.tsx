@@ -260,9 +260,15 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
       }
     });
     // 后端推送的流式快照（WS 重连时恢复）
+    const agentSnapshotPrefix = groupJid + '#agent:';
     const unsub4 = wsManager.on('stream_snapshot', (data: any) => {
-      if (data.chatJid === groupJid && data.snapshot) {
+      if (!data.snapshot) return;
+      if (data.chatJid === groupJid) {
         handleStreamSnapshot(groupJid, data.snapshot);
+      } else if (typeof data.chatJid === 'string' && data.chatJid.startsWith(agentSnapshotPrefix)) {
+        // Agent-specific snapshot: extract agentId and restore agentStreaming
+        const snapshotAgentId = data.chatJid.slice(agentSnapshotPrefix.length);
+        handleStreamSnapshot(groupJid, data.snapshot, snapshotAgentId);
       }
     });
     // agent_status 已提升到 AppLayout 全局监听

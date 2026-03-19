@@ -341,7 +341,7 @@ export function StreamingDisplay({ groupJid, isWaiting, senderName: senderNamePr
   const streaming = agentId ? agentStreamingState : mainStreaming;
   // Task agents — only shown in main conversation (not inside agent tabs)
   const allAgents = useChatStore(s => !agentId ? (s.agents[groupJid] ?? EMPTY_AGENTS) : EMPTY_AGENTS);
-  const taskAgents = useMemo(() => allAgents.filter(a => a.kind === 'task'), [allAgents]);
+  const taskAgents = useMemo(() => allAgents.filter(a => a.kind === 'task' && a.status === 'running'), [allAgents]);
   const hasTaskAgents = taskAgents.length > 0;
   const currentUser = useAuthStore(s => s.user);
   const appearance = useAuthStore(s => s.appearance);

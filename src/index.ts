@@ -417,6 +417,12 @@ function sendImWithFailTracking(
   text: string,
   localImagePaths: string[],
 ): void {
+  // DEBUG: trace every IM send with caller stack
+  const stack = new Error().stack?.split('\n').slice(1, 4).map(l => l.trim()).join(' <- ') || '';
+  logger.info(
+    { imJid, textLen: text.length, preview: text.slice(0, 80), callerStack: stack },
+    '[DEBUG-IM-SEND] sendImWithFailTracking called',
+  );
   imManager
     .sendMessage(imJid, text, localImagePaths)
     .then(() => {
@@ -1125,7 +1131,7 @@ interface SendMessageOptions {
     turnId?: string;
     sessionId?: string;
     sdkMessageUuid?: string;
-    sourceKind?: 'sdk_final' | 'sdk_send_message' | 'interrupt_partial' | 'overflow_partial' | 'legacy';
+    sourceKind?: 'sdk_final' | 'sdk_send_message' | 'interrupt_partial' | 'overflow_partial' | 'compact_partial' | 'legacy';
     finalizationReason?: 'completed' | 'interrupted' | 'error';
   };
 }
@@ -2023,7 +2029,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
               ? result.result
               : JSON.stringify(result.result);
           let text = stripAgentInternalTags(raw);
-          if (result.sourceKind === 'overflow_partial') {
+          if (result.sourceKind === 'overflow_partial' || result.sourceKind === 'compact_partial') {
             text = buildOverflowPartialReply(text);
           }
           logger.info(
@@ -2617,6 +2623,10 @@ async function sendMessage(
   try {
     if (sendToIM && isIMChannel) {
       try {
+        logger.info(
+          { jid, textLen: text.length, preview: text.slice(0, 80) },
+          '[DEBUG-IM-SEND] sendMessage direct IM send',
+        );
         const localImagePaths =
           options.localImagePaths ??
           extractLocalImImagePaths(text, resolveEffectiveFolder(jid));
@@ -4031,7 +4041,7 @@ async function processAgentConversation(
           ? output.result
           : JSON.stringify(output.result);
       let text = stripAgentInternalTags(raw);
-      if (output.sourceKind === 'overflow_partial') {
+      if (output.sourceKind === 'overflow_partial' || output.sourceKind === 'compact_partial') {
         text = buildOverflowPartialReply(text);
       }
       if (text) {

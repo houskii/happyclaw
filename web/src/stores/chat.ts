@@ -105,10 +105,19 @@ function mergeMessagesChronologically(
       byId.set(m.id, m);
     }
   }
-  return Array.from(byId.values()).sort((a, b) => {
+  const result = Array.from(byId.values()).sort((a, b) => {
     if (a.timestamp === b.timestamp) return a.id.localeCompare(b.id);
     return a.timestamp.localeCompare(b.timestamp);
   });
+  // Defensive: log when message count unexpectedly decreases
+  if (result.length < existing.length) {
+    const missingIds = existing.filter((m) => !byId.has(m.id)).map((m) => m.id);
+    console.warn(
+      '[mergeMessages] Message count decreased!',
+      { before: existing.length, after: result.length, incoming: incoming.length, missingIds },
+    );
+  }
+  return result;
 }
 
 const MAX_THINKING_CACHE_SIZE = 500;
@@ -193,7 +202,7 @@ interface ChatState {
     options?: { preserveThinking?: boolean },
   ) => void;
   restoreActiveState: () => Promise<void>;
-  handleStreamSnapshot: (chatJid: string, snapshot: StreamSnapshotData) => void;
+  handleStreamSnapshot: (chatJid: string, snapshot: StreamSnapshotData, agentId?: string) => void;
   // Sub-agent actions
   loadAgents: (jid: string) => Promise<void>;
   deleteAgentAction: (jid: string, agentId: string) => Promise<boolean>;
@@ -918,10 +927,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           attachments: body.attachments ? JSON.stringify(body.attachments) : undefined,
         };
         set((s) => {
-          const merged = mergeMessagesChronologically(
-            s.messages[jid] || [],
-            [msg],
-          );
+          const existing = s.messages[jid] || [];
+          if (!s.messages[jid]) {
+            console.warn('[sendMessage] messages[jid] is undefined at send time', { jid, storeKeys: Object.keys(s.messages) });
+          }
+          const merged = mergeMessagesChronologically(existing, [msg]);
           const latest = merged.length > 0 ? merged[merged.length - 1] : null;
           const shouldWait =
             !!latest &&
@@ -2075,30 +2085,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // WS 重连时接收后端推送的流式快照，恢复 StreamingDisplay
-  handleStreamSnapshot: (chatJid, snapshot) => {
-    set((s) => {
-      // 已有流式状态 → 不覆盖（可能已经在接收新事件）
-      if (s.streaming[chatJid]?.partialText) return s;
-      const restored: StreamingState = {
-        ...DEFAULT_STREAMING_STATE,
-        partialText: snapshot.partialText || '',
-        activeTools: (snapshot.activeTools || []).map((t) => ({
-          toolName: t.toolName,
-          toolUseId: t.toolUseId,
-          startTime: t.startTime,
-          toolInputSummary: t.toolInputSummary,
-          parentToolUseId: t.parentToolUseId,
-        })),
-        recentEvents: (snapshot.recentEvents || []) as StreamingTimelineEvent[],
-        todos: snapshot.todos,
-        systemStatus: snapshot.systemStatus || null,
-        turnId: snapshot.turnId,
-      };
-      return {
-        waiting: { ...s.waiting, [chatJid]: true },
-        streaming: { ...s.streaming, [chatJid]: restored },
-      };
-    });
+  handleStreamSnapshot: (chatJid, snapshot, agentId) => {
+    const restored: StreamingState = {
+      ...DEFAULT_STREAMING_STATE,
+      partialText: snapshot.partialText || '',
+      activeTools: (snapshot.activeTools || []).map((t) => ({
+        toolName: t.toolName,
+        toolUseId: t.toolUseId,
+        startTime: t.startTime,
+        toolInputSummary: t.toolInputSummary,
+        parentToolUseId: t.parentToolUseId,
+      })),
+      recentEvents: (snapshot.recentEvents || []) as StreamingTimelineEvent[],
+      todos: snapshot.todos,
+      systemStatus: snapshot.systemStatus || null,
+      turnId: snapshot.turnId,
+    };
+
+    if (agentId) {
+      // Agent-specific snapshot → restore agentStreaming + agentWaiting
+      set((s) => {
+        if (s.agentStreaming[agentId]?.partialText) return s;
+        return {
+          agentWaiting: { ...s.agentWaiting, [agentId]: true },
+          agentStreaming: { ...s.agentStreaming, [agentId]: restored },
+        };
+      });
+    } else {
+      // Main conversation snapshot
+      set((s) => {
+        if (s.streaming[chatJid]?.partialText) return s;
+        return {
+          waiting: { ...s.waiting, [chatJid]: true },
+          streaming: { ...s.streaming, [chatJid]: restored },
+        };
+      });
+    }
   },
 
   // Runner 状态同步：idle 时清理残留状态，running 时重新启用 stream event 接收
@@ -2109,26 +2131,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().clearStreaming(chatJid);
 
       // Runner idle → query 已结束，所有 SDK Task 应已完成。
-      // 如果有 task agent 仍显示 'running'，说明 agent_status WS 事件丢失，
-      // 在此强制标记完成并延迟清除，避免永久停留在 UI 上。
+      // 直接从 agents 数组中移除所有 task agent（不管状态），清理残留。
       const currentAgents = get().agents[chatJid] || [];
-      const staleRunningTasks = currentAgents.filter(
-        (a) => a.kind === 'task' && a.status === 'running',
-      );
-      if (staleRunningTasks.length > 0) {
+      const hasTaskAgents = currentAgents.some((a) => a.kind === 'task');
+      if (hasTaskAgents) {
         set((s) => {
           const existing = s.agents[chatJid] || [];
-          const updated = existing.map((a) => {
-            if (a.kind === 'task' && a.status === 'running') {
-              return { ...a, status: 'completed' as const, completed_at: new Date().toISOString() };
-            }
-            return a;
-          });
-          return { agents: { ...s.agents, [chatJid]: updated } };
+          const filtered = existing.filter((a) => a.kind !== 'task');
+          return { agents: { ...s.agents, [chatJid]: filtered } };
         });
-        for (const agent of staleRunningTasks) {
-          scheduleDbTaskAgentCleanup(set, agent.id, chatJid);
-        }
       }
     } else if (state === 'running') {
       // 新进程启动时重新设置 waiting=true，确保 handleStreamEvent 的防重入
