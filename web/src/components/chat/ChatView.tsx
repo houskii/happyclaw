@@ -10,7 +10,7 @@ import { FilePanel } from './FilePanel';
 import { ContainerEnvPanel } from './ContainerEnvPanel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { ArrowLeft, FolderOpen, Link, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Server, Sun, Terminal, Users, Variable, X, Zap } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Link, MessageSquare, Monitor, Moon, MoreHorizontal, PanelRightClose, PanelRightOpen, Search, Server, Sun, Terminal, Users, Variable, X, Zap } from 'lucide-react';
 import { useDisplayMode } from '../../hooks/useDisplayMode';
 import { useTheme } from '../../hooks/useTheme';
 import { cn } from '@/lib/utils';
@@ -20,6 +20,7 @@ import { TerminalPanel } from './TerminalPanel';
 import { GroupSkillsPanel } from './GroupSkillsPanel';
 import { GroupMcpPanel } from './GroupMcpPanel';
 import { GroupMembersPanel } from './GroupMembersPanel';
+import { SearchPanel } from './SearchPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AgentTabBar } from './AgentTabBar';
 import { ImBindingDialog } from './ImBindingDialog';
@@ -29,6 +30,7 @@ import { showToast } from '../../utils/toast';
 const MAIN_BINDING = '__main__' as const;
 
 const SIDEBAR_TABS = [
+  { id: 'search' as const, icon: Search, label: '搜索' },
   { id: 'files' as const, icon: FolderOpen, label: '文件管理' },
   { id: 'env' as const, icon: Variable, label: '环境变量' },
   { id: 'skills' as const, icon: Zap, label: '技能' },
@@ -59,7 +61,7 @@ const TERMINAL_MAX_RATIO = 0.7;
 // Stable empty references to avoid infinite re-render loops in Zustand selectors
 const EMPTY_AGENTS: import('../../types').AgentInfo[] = [];
 
-type SidebarTab = 'files' | 'env' | 'skills' | 'mcp' | 'members';
+type SidebarTab = 'search' | 'files' | 'env' | 'skills' | 'mcp' | 'members';
 
 interface ChatViewProps {
   groupJid: string;
@@ -489,6 +491,15 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
             )}
           </div>
         </div>
+        {/* Desktop: open search panel */}
+        <button
+          onClick={() => { setSidebarTab('search'); setPanelOpen(true); }}
+          className="hidden lg:flex p-2 rounded-lg hover:bg-accent text-muted-foreground transition-colors cursor-pointer"
+          title="搜索 (Ctrl+F)"
+          aria-label="搜索聊天记录"
+        >
+          <Search className="w-5 h-5" />
+        </button>
         {/* Desktop: toggle theme (light → dark → system) */}
         <button
           onClick={toggleTheme}
@@ -809,7 +820,9 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
 
           {/* Tab content */}
           <div className="flex-1 overflow-hidden min-h-0">
-            {sidebarTab === 'files' ? (
+            {sidebarTab === 'search' ? (
+              <SearchPanel groupJid={groupJid} />
+            ) : sidebarTab === 'files' ? (
               <FilePanel groupJid={groupJid} />
             ) : sidebarTab === 'env' ? (
               <ContainerEnvPanel groupJid={groupJid} />

@@ -54,6 +54,8 @@ import {
   unpinGroup,
   getTurnByResultMessageId,
   getMessageIdsWithTrace,
+  searchMessages,
+  countSearchResults,
 } from '../db.js';
 import { logger } from '../logger.js';
 import {
@@ -1321,6 +1323,70 @@ groupRoutes.get('/:jid/messages', authMiddleware, async (c) => {
   const messages = hasMore ? rows.slice(0, limit) : rows;
   annotateMessagesWithTrace(messages);
   return c.json({ messages, hasMore });
+});
+
+// GET /api/groups/:jid/messages/search - 工作区内搜索消息
+groupRoutes.get('/:jid/messages/search', authMiddleware, (c) => {
+  const jid = c.req.param('jid');
+  const group = getRegisteredGroup(jid);
+  if (!group) {
+    return c.json({ error: 'Group not found' }, 404);
+  }
+
+  const authUser = c.get('user') as AuthUser;
+  if (!canAccessGroup({ id: authUser.id, role: authUser.role }, group)) {
+    return c.json({ error: 'Group not found' }, 404);
+  }
+  if (isHostExecutionGroup(group) && !hasHostExecutionPermission(authUser)) {
+    return c.json(
+      { error: 'Insufficient permissions for host execution mode' },
+      403,
+    );
+  }
+
+  const q = c.req.query('q')?.trim();
+  if (!q) {
+    return c.json({ error: 'Missing search query parameter "q"' }, 400);
+  }
+
+  const limitRaw = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Math.min(
+    Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : 50,
+    200,
+  );
+  const offsetRaw = parseInt(c.req.query('offset') || '0', 10);
+  const offset = Number.isFinite(offsetRaw) ? Math.max(0, offsetRaw) : 0;
+
+  // Time range filter: days=7 means last 7 days, days=0 or omitted means no filter
+  const daysRaw = parseInt(c.req.query('days') || '0', 10);
+  const days = Number.isFinite(daysRaw) ? Math.max(0, daysRaw) : 0;
+  const sinceTs = days > 0
+    ? new Date(Date.now() - days * 86400000).toISOString()
+    : undefined;
+
+  // Home group: merge sibling JIDs (same logic as messages endpoint)
+  const queryJids = [jid];
+  if (group.is_home) {
+    const siblingJids = getJidsByFolder(group.folder);
+    for (const siblingJid of siblingJids) {
+      if (siblingJid === jid) continue;
+      const siblingGroup = getRegisteredGroup(siblingJid);
+      if (!siblingGroup) continue;
+      const ownerMatch =
+        group.created_by && siblingGroup.created_by === group.created_by;
+      const adminSelfMatch =
+        authUser.role === 'admin' && siblingGroup.created_by === authUser.id;
+      if (ownerMatch || adminSelfMatch) {
+        queryJids.push(siblingJid);
+      }
+    }
+  }
+
+  const results = searchMessages(queryJids, q, limit, offset, sinceTs);
+  const total = countSearchResults(queryJids, q, sinceTs);
+  const hasMore = offset + results.length < total;
+
+  return c.json({ results, total, hasMore });
 });
 
 // GET /api/groups/:jid/messages/:messageId/trace - 获取消息的执行轨迹

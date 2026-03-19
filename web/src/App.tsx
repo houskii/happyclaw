@@ -21,6 +21,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ defa
 const UsagePage = lazy(() => import('./pages/UsagePage').then(m => ({ default: m.UsagePage })));
 const BillingPage = lazy(() => import('./pages/BillingPage'));
 const LogsPage = lazy(() => import('./pages/LogsPage').then(m => ({ default: m.LogsPage })));
+const SearchPage = lazy(() => import('./pages/SearchPage').then(m => ({ default: m.SearchPage })));
 
 export function App() {
   const Router = shouldUseHashRouter() ? HashRouter : BrowserRouter;
@@ -68,6 +69,7 @@ export function App() {
           }
         >
           <Route path="/chat/:groupFolder?" element={<Suspense fallback={null}><ChatPage /></Suspense>} />
+          <Route path="/search" element={<Suspense fallback={null}><SearchPage /></Suspense>} />
           <Route path="/groups" element={<Navigate to="/settings?tab=groups" replace />} />
           <Route path="/tasks" element={<Suspense fallback={null}><TasksPage /></Suspense>} />
           <Route path="/monitor" element={<Suspense fallback={null}><MonitorPage /></Suspense>} />

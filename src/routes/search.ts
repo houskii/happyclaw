@@ -1,0 +1,77 @@
+import { Hono } from 'hono';
+import type { Variables } from '../web-context.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { canAccessGroup } from '../web-context.js';
+import type { AuthUser } from '../types.js';
+import {
+  getAllRegisteredGroups,
+  searchMessages,
+  countSearchResults,
+} from '../db.js';
+
+const searchRoutes = new Hono<{ Variables: Variables }>();
+
+// GET /api/search/messages - 跨工作区全局搜索
+searchRoutes.get('/messages', authMiddleware, (c) => {
+  const authUser = c.get('user') as AuthUser;
+
+  const q = c.req.query('q')?.trim();
+  if (!q) {
+    return c.json({ error: 'Missing search query parameter "q"' }, 400);
+  }
+
+  const limitRaw = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Math.min(
+    Number.isFinite(limitRaw) ? Math.max(1, limitRaw) : 50,
+    200,
+  );
+  const offsetRaw = parseInt(c.req.query('offset') || '0', 10);
+  const offset = Number.isFinite(offsetRaw) ? Math.max(0, offsetRaw) : 0;
+
+  // Time range filter: days=7 means last 7 days, days=0 or omitted means no filter
+  const daysRaw = parseInt(c.req.query('days') || '0', 10);
+  const days = Number.isFinite(daysRaw) ? Math.max(0, daysRaw) : 0;
+  const sinceTs = days > 0
+    ? new Date(Date.now() - days * 86400000).toISOString()
+    : undefined;
+
+  // Collect all JIDs the user can access
+  const allGroups = getAllRegisteredGroups();
+  const accessibleJids: string[] = [];
+  const groupInfoMap = new Map<
+    string,
+    { folder: string; name?: string }
+  >();
+
+  for (const [jid, group] of Object.entries(allGroups)) {
+    if (canAccessGroup({ id: authUser.id, role: authUser.role }, { ...group, jid })) {
+      accessibleJids.push(jid);
+      groupInfoMap.set(jid, {
+        folder: group.folder,
+        name: group.name,
+      });
+    }
+  }
+
+  if (accessibleJids.length === 0) {
+    return c.json({ results: [], total: 0, hasMore: false });
+  }
+
+  const results = searchMessages(accessibleJids, q, limit, offset, sinceTs);
+  const total = countSearchResults(accessibleJids, q, sinceTs);
+  const hasMore = offset + results.length < total;
+
+  // Enrich results with group info
+  const enriched = results.map((r) => {
+    const info = groupInfoMap.get(r.chat_jid);
+    return {
+      ...r,
+      group_folder: info?.folder,
+      group_name: info?.name,
+    };
+  });
+
+  return c.json({ results: enriched, total, hasMore });
+});
+
+export default searchRoutes;

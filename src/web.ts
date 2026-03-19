@@ -52,6 +52,7 @@ import turnsRoutes from './routes/turns.js';
 import agentDefinitionsRoutes from './routes/agent-definitions.js';
 import memoryAgentInternalRoutes from './routes/memory-agent.js';
 import feishuApiRoutes, { injectFeishuApiDeps } from './routes/feishu-api.js';
+import searchRoutes from './routes/search.js';
 import { usage as usageRoutes } from './routes/usage.js';
 import billingRoutes from './routes/billing.js';
 import {
@@ -175,6 +176,7 @@ app.route('/api/logs', logsRoutes);
 app.route('/api/groups', turnsRoutes); // Turn routes under /api/groups/:jid/turns
 app.route('/api/agent-definitions', agentDefinitionsRoutes);
 app.route('/api', monitorRoutes);
+app.route('/api/search', searchRoutes);
 app.route('/api/usage', usageRoutes);
 app.route('/api/billing', billingRoutes);
 app.route('/api/internal/memory', memoryAgentInternalRoutes);

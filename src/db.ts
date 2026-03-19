@@ -1079,7 +1079,42 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_turns_result_msg ON turns(result_message_id);
   `);
 
-  const SCHEMA_VERSION = '31';
+  // v32: FTS5 full-text search index for messages
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content,
+      content='messages',
+      content_rowid='rowid',
+      tokenize='unicode61'
+    );
+  `);
+  // Triggers to keep FTS index in sync with messages table
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+    END;
+  `);
+  // Rebuild FTS index from content table (idempotent, handles both fresh and existing DBs)
+  const msgCount = (
+    db.prepare('SELECT count(*) as cnt FROM messages').get() as {
+      cnt: number;
+    }
+  ).cnt;
+  if (msgCount > 0) {
+    logger.info(
+      { msgCount },
+      'Rebuilding FTS5 index from existing messages...',
+    );
+    db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+    logger.info('FTS5 rebuild complete');
+  }
+
+  const SCHEMA_VERSION = '32';
   db.prepare(
     'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
   ).run('schema_version', SCHEMA_VERSION);
@@ -2597,6 +2632,118 @@ export function getMessagesAfterMulti(
     ...row,
     is_from_me: row.is_from_me === 1,
   }));
+}
+
+// --- FTS5 full-text search ---
+
+export interface SearchResult {
+  id: string;
+  chat_jid: string;
+  source_jid?: string;
+  sender: string;
+  sender_name: string;
+  content: string;
+  snippet: string;
+  timestamp: string;
+  is_from_me: boolean;
+  attachments?: string;
+}
+
+/**
+ * Search messages by content using FTS5.
+ * Supports single or multiple JIDs (for home group merging).
+ * @param sinceTs - Optional ISO timestamp to limit results to messages after this time
+ */
+export function searchMessages(
+  chatJids: string[],
+  query: string,
+  limit = 50,
+  offset = 0,
+  sinceTs?: string,
+): SearchResult[] {
+  if (chatJids.length === 0 || !query.trim()) return [];
+
+  const sanitized = query.trim();
+  if (!sanitized) return [];
+
+  // Use LIKE for comprehensive substring matching (handles CJK+Latin mixed tokens
+  // that FTS5 unicode61 tokenizer merges, e.g. "成e33ecs" becomes one token).
+  // With time range filtering this is performant enough for typical datasets.
+  const likeTerms = sanitized.split(/\s+/).filter(Boolean);
+  const likeConditions = likeTerms
+    .map(() => 'm.content LIKE ?')
+    .join(' AND ');
+  const likeParams = likeTerms.map(
+    (t) => `%${t.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`,
+  );
+
+  const placeholders = chatJids.map(() => '?').join(',');
+  const timeFilter = sinceTs ? 'AND m.timestamp >= ?' : '';
+  const sql = `
+    SELECT m.id, m.chat_jid, m.source_jid, m.sender, m.sender_name, m.content,
+           m.timestamp, m.is_from_me, m.attachments,
+           '' AS snippet
+    FROM messages m
+    WHERE ${likeConditions}
+      AND m.chat_jid IN (${placeholders})
+      AND m.content != ''
+      ${timeFilter}
+    ORDER BY m.timestamp DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  const params: (string | number)[] = [...likeParams, ...chatJids];
+  if (sinceTs) params.push(sinceTs);
+  params.push(limit, offset);
+
+  const rows = db.prepare(sql).all(...params) as Array<
+    Omit<SearchResult, 'is_from_me'> & { is_from_me: number }
+  >;
+
+  return rows.map((row) => ({
+    ...row,
+    is_from_me: row.is_from_me === 1,
+  }));
+}
+
+/**
+ * Count total search results for pagination.
+ * @param sinceTs - Optional ISO timestamp to limit count to messages after this time
+ */
+export function countSearchResults(
+  chatJids: string[],
+  query: string,
+  sinceTs?: string,
+): number {
+  if (chatJids.length === 0 || !query.trim()) return 0;
+
+  const sanitized = query.trim();
+  if (!sanitized) return 0;
+
+  const likeTerms = sanitized.split(/\s+/).filter(Boolean);
+  const likeConditions = likeTerms
+    .map(() => 'm.content LIKE ?')
+    .join(' AND ');
+  const likeParams = likeTerms.map(
+    (t) => `%${t.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`,
+  );
+
+  const placeholders = chatJids.map(() => '?').join(',');
+  const timeFilter = sinceTs ? 'AND m.timestamp >= ?' : '';
+  const sql = `
+    SELECT COUNT(*) as cnt
+    FROM messages m
+    WHERE ${likeConditions}
+      AND m.chat_jid IN (${placeholders})
+      AND m.content != ''
+      ${timeFilter}
+  `;
+
+  const params: (string | number)[] = [...likeParams, ...chatJids];
+  if (sinceTs) params.push(sinceTs);
+
+  const row = db.prepare(sql).get(...params) as { cnt: number };
+  return row.cnt;
 }
 
 /**
