@@ -452,6 +452,9 @@ export class StreamEventProcessor {
         this.pendingTaskInput.delete(blockIndex);
         const isTeammate = pendingTask.isTeammate || false;
         if (isTeammate) this.teammateTaskToolUseIds.add(pendingTask.toolUseId);
+        // Also extract subagent_type and name if already present in accumulated JSON
+        const typeMatch = pendingTask.inputJson.match(/"subagent_type"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        const nameMatch = pendingTask.inputJson.match(/"name"\s*:\s*"((?:[^"\\]|\\.)*)"/);
         this.emit({
           status: 'stream', result: null,
           streamEvent: {
@@ -460,6 +463,8 @@ export class StreamEventProcessor {
             toolName: 'Task',
             taskDescription: descMatch[1].replace(/\\"/g, '"').slice(0, 200),
             ...(isTeammate ? { isTeammate: true } : {}),
+            ...(typeMatch ? { taskAgentType: typeMatch[1] } : {}),
+            ...(nameMatch ? { taskAgentName: nameMatch[1] } : {}),
           },
         });
       }

@@ -47,6 +47,8 @@ interface ActiveSubAgent {
   startTime: number;
   isBackground: boolean;
   isTeammate: boolean;
+  agentType?: string;
+  agentName?: string;
 }
 
 interface CompletedSubAgent {
@@ -54,6 +56,8 @@ interface CompletedSubAgent {
   description: string;
   duration: number;
   summary: string;
+  agentType?: string;
+  agentName?: string;
 }
 
 // ─── Card Builder ─────────────────────────────────────────────
@@ -70,6 +74,18 @@ function formatElapsed(ms: number): string {
 function toolDisplayName(tool: { toolName: string; skillName?: string }): string {
   if (tool.skillName) return `技能 ${tool.skillName}`;
   return tool.toolName;
+}
+
+function formatAgentLabel(agent: { description: string; agentType?: string; agentName?: string }): string {
+  const parts: string[] = [];
+  // Show name or type as prefix if available
+  if (agent.agentName) {
+    parts.push(`[${agent.agentName}]`);
+  } else if (agent.agentType) {
+    parts.push(`[${agent.agentType}]`);
+  }
+  parts.push(agent.description.slice(0, 50));
+  return parts.join(' ');
 }
 
 /** Format thinking text for display in the Feishu card.
@@ -127,15 +143,15 @@ function buildProgressCard(data: CardData): object {
   // Sub-agent section
   const agentLines: string[] = [];
   for (const a of completedSubAgents) {
-    const desc = a.description.slice(0, 50);
+    const label = formatAgentLabel(a);
     const summary = a.summary ? `: ${a.summary.slice(0, 60)}` : '';
-    agentLines.push(`✅ 🤖 ${desc}${summary} (${formatElapsed(a.duration)})`);
+    agentLines.push(`✅ 🤖 ${label}${summary} (${formatElapsed(a.duration)})`);
   }
   for (const a of activeSubAgents) {
-    const desc = a.description.slice(0, 50);
+    const label = formatAgentLabel(a);
     const elapsed = formatElapsed(Date.now() - a.startTime);
     const bgLabel = a.isBackground ? ' [后台]' : '';
-    agentLines.push(`🔄 🤖 ${desc}${bgLabel} (${elapsed})`);
+    agentLines.push(`🔄 🤖 ${label}${bgLabel} (${elapsed})`);
   }
 
   if (agentLines.length > 0) {
@@ -290,6 +306,8 @@ export class ProgressCardController {
         startTime: Date.now(),
         isBackground: event.isBackground ?? false,
         isTeammate: event.isTeammate ?? false,
+        agentType: event.taskAgentType,
+        agentName: event.taskAgentName,
       });
       this.dirty = true;
     } else if (type === 'task_notification' && event.taskId) {
@@ -302,6 +320,8 @@ export class ProgressCardController {
           description: active.description,
           duration: Date.now() - active.startTime,
           summary: event.taskSummary || '',
+          agentType: active.agentType,
+          agentName: active.agentName,
         });
         this.dirty = true;
       }
@@ -341,8 +361,10 @@ export class ProgressCardController {
       try {
         await this.patchCard('completed');
         logger.info(`Progress card: patched to completed | chatId=${this.chatId} messageId=${this.messageId}`);
-        // Delete after 15s so user can see the "完成" state
-        this.deleteTimer = setTimeout(() => this.deleteCard(), 15000);
+        // Delete after 15s so user can see the "完成" state.
+        // Capture messageId in closure — completeAndReset() nulls this.messageId.
+        const msgId = this.messageId;
+        this.deleteTimer = setTimeout(() => this.deleteCardById(msgId), 15000);
       } catch (err) {
         logger.warn({ err }, `Progress card: failed to patch completed | chatId=${this.chatId} messageId=${this.messageId}`);
       }
@@ -545,12 +567,17 @@ export class ProgressCardController {
 
   private async deleteCard(): Promise<void> {
     if (!this.messageId) return;
+    await this.deleteCardById(this.messageId);
+  }
+
+  private async deleteCardById(messageId: string): Promise<void> {
     const client = this.resolveClient();
     if (!client) return;
     try {
       await client.im.v1.message.delete({
-        path: { message_id: this.messageId },
+        path: { message_id: messageId },
       });
+      logger.info(`Progress card: deleted | chatId=${this.chatId} messageId=${messageId}`);
     } catch {
       // Deletion is best-effort
     }

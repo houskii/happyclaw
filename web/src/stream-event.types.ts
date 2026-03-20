@@ -38,6 +38,10 @@ export interface StreamEvent {
   taskId?: string;
   taskStatus?: string;
   taskSummary?: string;
+  /** Sub-agent type (e.g. "Explore", "code-reviewer", "web-researcher") */
+  taskAgentType?: string;
+  /** Sub-agent name (user-assigned name for addressing via SendMessage) */
+  taskAgentName?: string;
   isBackground?: boolean;
   isTeammate?: boolean;
   toolInput?: Record<string, unknown>;
