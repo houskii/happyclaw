@@ -38,17 +38,42 @@ async function getClaudeCodeVersion(): Promise<string | null> {
   ) {
     return cachedClaudeVersion.version;
   }
-  try {
-    const { stdout } = await execFileAsync('claude', ['--version'], {
-      timeout: 5000,
-    });
-    const version = stdout.trim() || null;
-    cachedClaudeVersion = { version, fetchedAt: now };
-    return version;
-  } catch {
-    cachedClaudeVersion = { version: null, fetchedAt: now };
-    return null;
+
+  // Try global `claude` CLI first, then fallback to SDK-bundled cli.js
+  const candidates: Array<{ cmd: string; args: string[] }> = [
+    { cmd: 'claude', args: ['--version'] },
+    {
+      cmd: 'node',
+      args: [
+        path.join(
+          process.cwd(),
+          'container',
+          'agent-runner',
+          'node_modules',
+          '@anthropic-ai',
+          'claude-agent-sdk',
+          'cli.js',
+        ),
+        '--version',
+      ],
+    },
+  ];
+
+  for (const { cmd, args } of candidates) {
+    try {
+      const { stdout } = await execFileAsync(cmd, args, { timeout: 5000 });
+      const version = stdout.trim() || null;
+      if (version) {
+        cachedClaudeVersion = { version, fetchedAt: now };
+        return version;
+      }
+    } catch {
+      // try next candidate
+    }
   }
+
+  cachedClaudeVersion = { version: null, fetchedAt: now };
+  return null;
 }
 
 // --- Docker build state ---
