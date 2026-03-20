@@ -50,6 +50,7 @@ const IPC_POLL_MS = 500;
 
 
 let needsMemoryFlush = false;
+let hadCompaction = false;
 let currentPermissionMode: PermissionMode = 'bypassPermissions';
 
 const DEFAULT_ALLOWED_TOOLS = [
@@ -483,6 +484,10 @@ function createPreCompactHook(
     // Remove entries before the last compact_boundary (already summarized).
     // Must run AFTER archiving (archive needs full transcript).
     trimSessionJsonl(transcriptPath);
+
+    // Flag compaction so the query loop auto-continues instead of
+    // waiting for user input (non-blocking compaction #229).
+    hadCompaction = true;
 
     // Flag memory flush for home containers (full memory write access)
     if (isHome) {
@@ -1579,6 +1584,18 @@ async function main(): Promise<void> {
 
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+
+      // ── Non-blocking compaction: auto-continue after context compaction ──
+      // Instead of waiting for user to send "继续", automatically start a
+      // new query so the agent resumes seamlessly where it left off.
+      if (hadCompaction) {
+        hadCompaction = false;
+        log('Auto-continuing after compaction (non-blocking)');
+        prompt = '继续';
+        promptImages = undefined;
+        containerInput.turnId = generateTurnId();
+        continue;
+      }
 
       log('Query ended, waiting for next IPC message...');
 

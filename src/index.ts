@@ -47,6 +47,8 @@ import {
   getMessagesSince,
   getNewMessages,
   getRouterState,
+  getRouterStateByPrefix,
+  deleteRouterState,
   getTaskById,
   getUserHomeGroup,
   initDatabase,
@@ -1343,6 +1345,16 @@ function loadState(): void {
   sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
 
+  // Restore persisted OOM counters
+  for (const { key, value } of getRouterStateByPrefix('oom_exits:')) {
+    const folder = key.slice('oom_exits:'.length);
+    const count = parseInt(value, 10);
+    if (count > 0) {
+      consecutiveOomExits[folder] = count;
+      logger.info({ folder, count }, 'Restored OOM counter from DB');
+    }
+  }
+
   // Auto-register default groups from config/default-groups.json
   const defaultGroupsPath = path.resolve(
     process.cwd(),
@@ -2480,6 +2492,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (isOom) {
       const folder = effectiveGroup.folder;
       consecutiveOomExits[folder] = (consecutiveOomExits[folder] || 0) + 1;
+      setRouterState(`oom_exits:${folder}`, String(consecutiveOomExits[folder]));
       logger.warn(
         { folder, consecutive: consecutiveOomExits[folder], threshold: OOM_AUTO_RESET_THRESHOLD },
         'OOM exit detected (code 137)',
@@ -2491,6 +2504,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           'Consecutive OOM threshold reached, auto-resetting session to break death loop',
         );
         consecutiveOomExits[folder] = 0;
+        deleteRouterState(`oom_exits:${folder}`);
 
         // Clear session files and DB records (same as unrecoverable_transcript handling)
         try {
@@ -2516,6 +2530,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     } else {
       // Non-OOM error: reset the consecutive counter
       delete consecutiveOomExits[effectiveGroup.folder];
+      deleteRouterState(`oom_exits:${effectiveGroup.folder}`);
     }
 
     sendSystemMessage(chatJid, 'agent_error', errorDetail);
@@ -2528,6 +2543,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   // Reset OOM counter on successful exit
   delete consecutiveOomExits[effectiveGroup.folder];
+  deleteRouterState(`oom_exits:${effectiveGroup.folder}`);
 
   // Final fallback for silent-success paths (no visible reply).
   commitCursor();
@@ -2860,8 +2876,8 @@ function buildInterruptedReply(partialText: string): string {
 function buildOverflowPartialReply(partialText: string): string {
   const trimmed = partialText.trimEnd();
   return trimmed
-    ? `${trimmed}\n\n---\n*⚠️ 上下文压缩中，以上为部分回复*`
-    : '*⚠️ 上下文压缩中*';
+    ? `${trimmed}\n\n---\n*⚠️ 上下文压缩中，稍后自动继续*`
+    : '*⚠️ 上下文压缩中，稍后自动继续*';
 }
 
 /**

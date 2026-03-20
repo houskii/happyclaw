@@ -41,7 +41,7 @@
     "concurrently": "^9.2.1",
     "prettier": "^3.8.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=20"

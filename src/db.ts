@@ -2035,6 +2035,18 @@ export function setRouterState(key: string, value: string): void {
   ).run(key, value);
 }
 
+export function deleteRouterState(key: string): void {
+  db.prepare('DELETE FROM router_state WHERE key = ?').run(key);
+}
+
+export function getRouterStateByPrefix(
+  prefix: string,
+): Array<{ key: string; value: string }> {
+  return db
+    .prepare('SELECT key, value FROM router_state WHERE key LIKE ?')
+    .all(`${prefix}%`) as Array<{ key: string; value: string }>;
+}
+
 // --- Session accessors ---
 
 export function getSession(
