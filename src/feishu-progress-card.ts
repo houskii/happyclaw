@@ -16,9 +16,15 @@ import type { StreamEvent } from './stream-event.types.js';
 type ProgressState = 'idle' | 'creating' | 'active' | 'completed' | 'aborted' | 'error';
 
 export interface ProgressCardOptions {
-  client: lark.Client;
+  /** Pre-resolved client (used by im-channel adapter) */
+  client?: lark.Client;
+  /** Lazy client resolver — called when the card is actually created, avoiding race
+   *  conditions when Feishu WebSocket hasn't reconnected yet after a restart. */
+  clientResolver?: () => lark.Client | undefined;
   chatId: string;
   replyToMsgId?: string;
+  /** Lazy resolver for reply-to message ID (may change between creation and first event) */
+  replyToMsgIdResolver?: () => string | undefined;
 }
 
 interface ActiveTool {
@@ -33,6 +39,21 @@ interface CompletedTool {
   duration: number;
   inputSummary?: string;
   skillName?: string;
+}
+
+interface ActiveSubAgent {
+  taskId: string;
+  description: string;
+  startTime: number;
+  isBackground: boolean;
+  isTeammate: boolean;
+}
+
+interface CompletedSubAgent {
+  taskId: string;
+  description: string;
+  duration: number;
+  summary: string;
 }
 
 // ─── Card Builder ─────────────────────────────────────────────
@@ -51,24 +72,36 @@ function toolDisplayName(tool: { toolName: string; skillName?: string }): string
   return tool.toolName;
 }
 
-function truncateThinking(text: string, maxLen = 120): string {
-  // Take the last portion of thinking text to show the most recent reasoning
+/** Format thinking text for display in the Feishu card.
+ *  Shows the full text with blockquote formatting, preserving paragraph structure. */
+function formatThinking(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return '';
-  const lastChunk = trimmed.length > maxLen ? '...' + trimmed.slice(-maxLen) : trimmed;
-  // Collapse newlines for compact display
-  return lastChunk.replace(/\n+/g, ' ').trim();
+  // Preserve paragraph breaks but collapse excessive whitespace
+  return trimmed
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n')
+    .map((line) => `> ${line}`)
+    .join('\n');
 }
 
-function buildProgressCard(
-  activeTools: ActiveTool[],
-  completedTools: CompletedTool[],
-  isThinking: boolean,
-  thinkingText: string,
-  elapsedMs: number,
-  state: 'active' | 'completed' | 'aborted',
-  abortReason?: string,
-): object {
+interface CardData {
+  activeTools: ActiveTool[];
+  completedTools: CompletedTool[];
+  isThinking: boolean;
+  thinkingText: string;
+  elapsedMs: number;
+  state: 'active' | 'completed' | 'aborted';
+  abortReason?: string;
+  activeSubAgents: ActiveSubAgent[];
+  completedSubAgents: CompletedSubAgent[];
+}
+
+function buildProgressCard(data: CardData): object {
+  const {
+    activeTools, completedTools, isThinking, thinkingText,
+    elapsedMs, state, abortReason, activeSubAgents, completedSubAgents,
+  } = data;
   const elements: Array<Record<string, unknown>> = [];
 
   // Elapsed time
@@ -79,15 +112,37 @@ function buildProgressCard(
     content: `${statusEmoji} **${statusLabel}** · ⏱ ${formatElapsed(elapsedMs)}`,
   });
 
-  // Thinking indicator with content preview
+  // Thinking indicator with full content
   if (isThinking && state === 'active') {
-    const preview = truncateThinking(thinkingText);
-    const thinkingContent = preview
-      ? `💭 正在思考...\n> ${preview}`
+    const formatted = formatThinking(thinkingText);
+    const thinkingContent = formatted
+      ? `💭 正在思考...\n${formatted}`
       : '💭 正在思考...';
     elements.push({
       tag: 'markdown',
       content: thinkingContent,
+    });
+  }
+
+  // Sub-agent section
+  const agentLines: string[] = [];
+  for (const a of completedSubAgents) {
+    const desc = a.description.slice(0, 50);
+    const summary = a.summary ? `: ${a.summary.slice(0, 60)}` : '';
+    agentLines.push(`✅ 🤖 ${desc}${summary} (${formatElapsed(a.duration)})`);
+  }
+  for (const a of activeSubAgents) {
+    const desc = a.description.slice(0, 50);
+    const elapsed = formatElapsed(Date.now() - a.startTime);
+    const bgLabel = a.isBackground ? ' [后台]' : '';
+    agentLines.push(`🔄 🤖 ${desc}${bgLabel} (${elapsed})`);
+  }
+
+  if (agentLines.length > 0) {
+    elements.push({ tag: 'hr' });
+    elements.push({
+      tag: 'markdown',
+      content: '**子 Agent**\n' + agentLines.join('\n'),
     });
   }
 
@@ -142,6 +197,8 @@ export class ProgressCardController {
   private startedAt = Date.now();
   private activeTools = new Map<string, ActiveTool>();
   private completedTools: CompletedTool[] = [];
+  private activeSubAgents = new Map<string, ActiveSubAgent>();
+  private completedSubAgents: CompletedSubAgent[] = [];
   private isThinking = false;
   private thinkingText = '';
   private dirty = false;
@@ -154,14 +211,27 @@ export class ProgressCardController {
   private lastFlushTime = 0;
   private readonly flushInterval = 2000; // 2s throttle
 
-  private readonly client: lark.Client;
+  private client: lark.Client | undefined;
+  private readonly clientResolver?: () => lark.Client | undefined;
   private readonly chatId: string;
   private readonly replyToMsgId?: string;
+  private readonly replyToMsgIdResolver?: () => string | undefined;
 
   constructor(opts: ProgressCardOptions) {
     this.client = opts.client;
+    this.clientResolver = opts.clientResolver;
     this.chatId = opts.chatId;
     this.replyToMsgId = opts.replyToMsgId;
+    this.replyToMsgIdResolver = opts.replyToMsgIdResolver;
+  }
+
+  /** Resolve the lark client lazily — allows creation before Feishu connection is ready. */
+  private resolveClient(): lark.Client | undefined {
+    if (this.client) return this.client;
+    if (this.clientResolver) {
+      this.client = this.clientResolver();
+    }
+    return this.client;
   }
 
   isActive(): boolean {
@@ -212,6 +282,29 @@ export class ProgressCardController {
         if (event.skillName) active.skillName = event.skillName;
         this.dirty = true;
       }
+    } else if (type === 'task_start' && event.toolUseId) {
+      // Sub-agent (Task) started
+      this.activeSubAgents.set(event.toolUseId, {
+        taskId: event.toolUseId,
+        description: event.taskDescription || 'Sub-Agent',
+        startTime: Date.now(),
+        isBackground: event.isBackground ?? false,
+        isTeammate: event.isTeammate ?? false,
+      });
+      this.dirty = true;
+    } else if (type === 'task_notification' && event.taskId) {
+      // Sub-agent completed/failed
+      const active = this.activeSubAgents.get(event.taskId);
+      if (active) {
+        this.activeSubAgents.delete(event.taskId);
+        this.completedSubAgents.push({
+          taskId: active.taskId,
+          description: active.description,
+          duration: Date.now() - active.startTime,
+          summary: event.taskSummary || '',
+        });
+        this.dirty = true;
+      }
     }
 
     // Lazy creation: create card on first thinking or tool event
@@ -232,18 +325,29 @@ export class ProgressCardController {
    * Complete the progress card — patch to final "completed" state, then delete after delay.
    */
   async complete(): Promise<void> {
-    if (this.state !== 'active' && this.state !== 'creating') return;
+    const prevState = this.state;
+    // Allow completion from 'aborted' state — the abort may have been triggered by
+    // registerProgressSession when a new run starts for the same chatJid, but the
+    // owning processGroupMessages still needs to finalize the card properly.
+    if (prevState !== 'active' && prevState !== 'creating' && prevState !== 'aborted') {
+      logger.info(`Progress card: complete() skipped | chatId=${this.chatId} state=${prevState}`);
+      return;
+    }
     this.state = 'completed';
+    this.abortReason = undefined; // Clear any abort reason since we're completing successfully
     this.clearFlushTimer();
 
     if (this.messageId) {
       try {
         await this.patchCard('completed');
-        // Delete after 5s to reduce clutter (the actual reply follows)
-        this.deleteTimer = setTimeout(() => this.deleteCard(), 5000);
-      } catch {
-        // ignore
+        logger.info(`Progress card: patched to completed | chatId=${this.chatId} messageId=${this.messageId}`);
+        // Delete after 15s so user can see the "完成" state
+        this.deleteTimer = setTimeout(() => this.deleteCard(), 15000);
+      } catch (err) {
+        logger.warn({ err }, `Progress card: failed to patch completed | chatId=${this.chatId} messageId=${this.messageId}`);
       }
+    } else {
+      logger.info(`Progress card: complete() called but no messageId | chatId=${this.chatId} prevState=${prevState}`);
     }
   }
 
@@ -256,12 +360,38 @@ export class ProgressCardController {
     this.abortReason = reason;
     this.clearFlushTimer();
 
-    if (this.messageId) {
+    // Don't patch the card to "aborted" — let the owning process decide the final
+    // state via complete() or a real abort. The abort from registerProgressSession
+    // is just a state marker, not a user-visible transition.
+    if (this.messageId && reason !== '新的执行已开始') {
       try {
         await this.patchCard('aborted');
-      } catch {
-        // ignore
+        logger.info(`Progress card: patched to aborted | chatId=${this.chatId} reason=${reason}`);
+      } catch (err) {
+        logger.warn({ err }, `Progress card: failed to patch aborted | chatId=${this.chatId}`);
       }
+    }
+  }
+
+  /**
+   * Force cleanup during shutdown — deletes the card regardless of current state.
+   * Used by abortAllProgressSessions when the process is shutting down.
+   */
+  async forceCleanup(_reason: string): Promise<void> {
+    this.clearFlushTimer();
+    if (this.deleteTimer) {
+      clearTimeout(this.deleteTimer);
+      this.deleteTimer = null;
+    }
+
+    if (!this.messageId) return;
+
+    // Just delete the card silently — no need to show "服务维护中" to the user
+    try {
+      await this.deleteCard();
+      logger.info(`Progress card: force cleanup (deleted) | chatId=${this.chatId}`);
+    } catch (err) {
+      logger.warn({ err }, `Progress card: force cleanup failed | chatId=${this.chatId}`);
     }
   }
 
@@ -273,28 +403,44 @@ export class ProgressCardController {
     this.clearFlushTimer();
   }
 
+  /** Build CardData snapshot for buildProgressCard. */
+  private getCardData(state: 'active' | 'completed' | 'aborted'): CardData {
+    return {
+      activeTools: Array.from(this.activeTools.values()),
+      completedTools: this.completedTools,
+      isThinking: this.isThinking,
+      thinkingText: this.thinkingText,
+      elapsedMs: Date.now() - this.startedAt,
+      state,
+      abortReason: this.abortReason,
+      activeSubAgents: Array.from(this.activeSubAgents.values()),
+      completedSubAgents: this.completedSubAgents,
+    };
+  }
+
   // ─── Internal ───────────────────────────────────────────
 
   private async createCard(): Promise<void> {
-    const card = buildProgressCard(
-      Array.from(this.activeTools.values()),
-      this.completedTools,
-      this.isThinking,
-      this.thinkingText,
-      Date.now() - this.startedAt,
-      'active',
-    );
+    const client = this.resolveClient();
+    if (!client) {
+      logger.warn({ chatId: this.chatId }, 'Progress card: no lark client available (connection not ready?)');
+      this.state = 'error';
+      return;
+    }
+
+    const card = buildProgressCard(this.getCardData('active'));
     const content = JSON.stringify(card);
 
     try {
+      const replyTo = this.replyToMsgId || this.replyToMsgIdResolver?.();
       let resp: any;
-      if (this.replyToMsgId) {
-        resp = await this.client.im.message.reply({
-          path: { message_id: this.replyToMsgId },
+      if (replyTo) {
+        resp = await client.im.message.reply({
+          path: { message_id: replyTo },
           data: { content, msg_type: 'interactive' },
         });
       } else {
-        resp = await this.client.im.v1.message.create({
+        resp = await client.im.v1.message.create({
           params: { receive_id_type: 'chat_id' },
           data: { receive_id: this.chatId, msg_type: 'interactive', content },
         });
@@ -306,17 +452,20 @@ export class ProgressCardController {
       // State may have changed during await (complete/abort called while creating)
       if (this.state !== 'creating') {
         const finalState = this.state as 'completed' | 'aborted';
+        logger.info({ chatId: this.chatId, finalState, messageId: this.messageId }, 'Progress card: state changed during creation, patching to final state');
         try {
           await this.patchCard(finalState);
           if (finalState === 'completed') {
-            this.deleteTimer = setTimeout(() => this.deleteCard(), 5000);
+            this.deleteTimer = setTimeout(() => this.deleteCard(), 15000);
           }
-        } catch { /* ignore */ }
+        } catch (err) {
+          logger.warn({ err, chatId: this.chatId, finalState }, 'Progress card: failed to patch final state after creation race');
+        }
         return;
       }
 
       this.state = 'active';
-      logger.debug({ chatId: this.chatId, messageId: this.messageId }, 'Progress card created');
+      logger.info({ chatId: this.chatId, messageId: this.messageId }, 'Progress card created');
 
       if (this.dirty) this.scheduleFlush();
     } catch (err) {
@@ -357,19 +506,15 @@ export class ProgressCardController {
     displayState: 'active' | 'completed' | 'aborted',
   ): Promise<void> {
     if (!this.messageId) return;
+    const client = this.resolveClient();
+    if (!client) return;
 
     const card = buildProgressCard(
-      Array.from(this.activeTools.values()),
-      this.completedTools,
-      this.isThinking,
-      this.thinkingText,
-      Date.now() - this.startedAt,
-      displayState,
-      this.abortReason,
+      this.getCardData(displayState),
     );
     const content = JSON.stringify(card);
 
-    await this.client.im.v1.message.patch({
+    await client.im.v1.message.patch({
       path: { message_id: this.messageId },
       data: { content },
     });
@@ -377,8 +522,10 @@ export class ProgressCardController {
 
   private async deleteCard(): Promise<void> {
     if (!this.messageId) return;
+    const client = this.resolveClient();
+    if (!client) return;
     try {
-      await this.client.im.v1.message.delete({
+      await client.im.v1.message.delete({
         path: { message_id: this.messageId },
       });
     } catch {
@@ -418,14 +565,14 @@ export async function abortAllProgressSessions(
 ): Promise<void> {
   const promises: Promise<void>[] = [];
   for (const [chatJid, session] of activeProgressSessions.entries()) {
-    if (session.isActive()) {
-      promises.push(
-        session.abort(reason).catch((err) => {
-          logger.debug({ err, chatJid }, 'Failed to abort progress session');
-        }),
-      );
-    }
-    session.dispose();
+    // Force cleanup ALL sessions during shutdown, regardless of current state.
+    // Sessions may be in 'aborted' state (from registry replacement) but their
+    // Feishu card is still showing "执行中" and needs to be cleaned up.
+    promises.push(
+      session.forceCleanup(reason).catch((err) => {
+        logger.debug({ err, chatJid }, 'Failed to cleanup progress session');
+      }),
+    );
   }
   await Promise.allSettled(promises);
   activeProgressSessions.clear();

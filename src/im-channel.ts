@@ -4,6 +4,7 @@
  * Defines a standard interface for all IM integrations (Feishu, Telegram, etc.)
  * and provides adapter factories that wrap existing connection implementations.
  */
+import * as lark from '@larksuiteoapi/node-sdk';
 import {
   createFeishuConnection,
   type FeishuConnection,
@@ -100,6 +101,10 @@ export interface IMChannel {
   createStreamingSession?(chatId: string): StreamingCardController | undefined;
   /** Create a progress card for real-time tool execution display (Feishu only) */
   createProgressCard?(chatId: string): ProgressCardController | undefined;
+  /** Get the underlying Lark SDK client (Feishu only, used for lazy card resolution) */
+  getLarkClient?(): lark.Client | undefined;
+  /** Get the last inbound message ID for a chat (Feishu only) */
+  getLastMessageId?(chatId: string): string | undefined;
   getChatInfo?(chatId: string): Promise<{
     avatar?: string;
     name?: string;
@@ -268,6 +273,14 @@ export function createFeishuChannel(config: FeishuConnectionConfig): IMChannel {
         replyToMsgId: inner.getLastMessageId(chatId),
       };
       return new ProgressCardController(opts);
+    },
+
+    getLarkClient(): lark.Client | undefined {
+      return inner?.getLarkClient() ?? undefined;
+    },
+
+    getLastMessageId(chatId: string): string | undefined {
+      return inner?.getLastMessageId(chatId);
     },
   };
 

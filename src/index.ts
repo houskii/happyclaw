@@ -1870,13 +1870,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
   triggerMessagesByFolder.set(effectiveGroup.folder, triggerMap);
 
-  // Create Feishu progress card if enabled for this user
+  // Create Feishu progress card if enabled for this user.
+  // The controller uses lazy client resolution — the lark client is resolved
+  // when the card is actually created (on first stream event), not now.
+  // This avoids race conditions after service restarts.
   let progressCard: ProgressCardController | undefined;
   const sourceChannel = resolveChannel(missedMessages);
+  const sourceChannelType = getChannelType(sourceChannel);
+  const feishuConfig = ownerUserId ? getUserFeishuConfig(ownerUserId) : null;
   if (
     ownerUserId &&
-    getChannelType(sourceChannel) === 'feishu' &&
-    getUserFeishuConfig(ownerUserId)?.streamingCard
+    sourceChannelType === 'feishu' &&
+    feishuConfig?.streamingCard
   ) {
     progressCard = imManager.createProgressCard(sourceChannel);
     if (progressCard) {

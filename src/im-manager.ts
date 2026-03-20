@@ -19,7 +19,7 @@ import type { FeishuConnectionConfig } from './feishu.js';
 import type { TelegramConnectionConfig } from './telegram.js';
 import type { QQConnectionConfig } from './qq.js';
 import type { StreamingCardController } from './feishu-streaming-card.js';
-import type { ProgressCardController } from './feishu-progress-card.js';
+import { ProgressCardController } from './feishu-progress-card.js';
 import { getRegisteredGroup, getJidsByFolder } from './db.js';
 import { logger } from './logger.js';
 
@@ -240,11 +240,25 @@ class IMConnectionManager {
     if (channelType !== 'feishu') return undefined;
 
     const chatId = extractChatId(jid);
-    const channel = this.findChannelForJid(jid, channelType);
-    if (channel?.createProgressCard) {
-      return channel.createProgressCard(chatId);
-    }
-    return undefined;
+
+    // Lazy resolver: the lark client is resolved when the card is actually
+    // created (on first meaningful stream event), not upfront. This avoids
+    // race conditions where the Feishu connection hasn't reconnected yet
+    // after a service restart.
+    const clientResolver = () => {
+      const channel = this.findChannelForJid(jid, channelType);
+      return channel?.getLarkClient?.() ?? undefined;
+    };
+    const replyToMsgIdResolver = () => {
+      const channel = this.findChannelForJid(jid, channelType);
+      return channel?.getLastMessageId?.(chatId);
+    };
+
+    return new ProgressCardController({
+      clientResolver,
+      chatId,
+      replyToMsgIdResolver,
+    });
   }
 
   /**
