@@ -67,6 +67,8 @@ export { FeishuDocsPlugin } from './plugins/feishu-docs.js';
 export type { FeishuDocsPluginOptions } from './plugins/feishu-docs.js';
 export { CrossModelPlugin } from './plugins/cross-model.js';
 export type { CrossModelPluginOptions } from './plugins/cross-model.js';
+export { DelegatePlugin } from './plugins/delegate.js';
+export type { DelegatePluginOptions, DelegateJobSpec, DelegateResult } from './plugins/delegate.js';
 
 // Utilities
 export {

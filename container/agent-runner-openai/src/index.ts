@@ -63,6 +63,9 @@ const OPENAI_AUTH_MODE = process.env.OPENAI_AUTH_MODE || 'api_key';
 const OPENAI_REASONING_EFFORT = (process.env.OPENAI_REASONING_EFFORT || '') as '' | 'low' | 'medium' | 'high';
 const OPENAI_REASONING_SUMMARY = (process.env.OPENAI_REASONING_SUMMARY || '') as '' | 'auto' | 'concise' | 'detailed' | 'none';
 
+/** Delegate mode: single-turn execution, no IPC, no messaging/tasks plugins. */
+const IS_DELEGATE = process.env.HAPPYCLAW_DELEGATE_MODE === '1';
+
 const API_URL = process.env.HAPPYCLAW_API_URL || 'http://localhost:3000';
 const API_TOKEN = process.env.HAPPYCLAW_INTERNAL_TOKEN || '';
 
@@ -108,9 +111,18 @@ function trimCodexHistory(items: CodexInputItem[]): void {
 // ─── Context Manager Setup ───────────────────────────────────
 
 function buildContextManager(ctx: PluginContext): ContextManager {
+  const mgr = new ContextManager(ctx);
+
+  if (IS_DELEGATE) {
+    // Delegate mode: only local tools (file ops + commands), no messaging/tasks/memory/IM
+    mgr.register(new LocalToolsPlugin());
+    // No CrossModelPlugin — prevent recursive delegation or cross-model calls
+    return mgr;
+  }
+
   const MEMORY_INDEX_PATH = process.env.HAPPYCLAW_WORKSPACE_MEMORY_INDEX || '/workspace/memory-index';
 
-  const mgr = new ContextManager(ctx)
+  mgr
     .register(new MessagingPlugin())
     .register(new TasksPlugin())
     .register(new GroupsPlugin())
@@ -392,7 +404,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  log(`Starting | mode=${OPENAI_AUTH_MODE} | model=${OPENAI_MODEL} | folder=${input.groupFolder}`);
+  log(`Starting | mode=${OPENAI_AUTH_MODE} | model=${OPENAI_MODEL} | folder=${input.groupFolder}${IS_DELEGATE ? ' | DELEGATE' : ''}`);
 
   emitStreamEvent({ eventType: 'init', model: OPENAI_MODEL });
 
@@ -456,6 +468,12 @@ async function runChatCompletionsMode(
     writeOutput({ status: 'error', result: null, error: errMsg });
   }
 
+  // Delegate mode: single-turn only, exit immediately
+  if (IS_DELEGATE) {
+    log('Delegate mode: single-turn complete, exiting');
+    return;
+  }
+
   while (true) {
     const nextMessage = await waitForIpcMessage(ipcConfig);
     if (nextMessage === null) {
@@ -508,6 +526,12 @@ async function runCodexMode(
     const errMsg = err instanceof Error ? err.message : String(err);
     log(`Error in initial Codex turn: ${errMsg}`);
     writeOutput({ status: 'error', result: null, error: errMsg });
+  }
+
+  // Delegate mode: single-turn only, exit immediately
+  if (IS_DELEGATE) {
+    log('Delegate mode: single-turn complete, exiting');
+    return;
   }
 
   while (true) {

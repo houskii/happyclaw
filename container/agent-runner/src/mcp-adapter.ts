@@ -16,6 +16,7 @@ import {
   MemoryPlugin,
   FeishuDocsPlugin,
   CrossModelPlugin,
+  DelegatePlugin,
   type PluginContext,
 } from 'happyclaw-agent-runner-core';
 
@@ -39,7 +40,8 @@ export function createContextManager(ctx: PluginContext): ContextManager {
       apiUrl: API_URL,
       apiToken: API_TOKEN,
     }))
-    .register(new CrossModelPlugin());
+    .register(new CrossModelPlugin())
+    .register(new DelegatePlugin());
 }
 
 // ─── SDK Tool Conversion ─────────────────────────────────────
