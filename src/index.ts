@@ -251,6 +251,12 @@ let globalMessageCursor: MessageCursor = { timestamp: '', id: '' };
 let sessions: Record<string, string> = {};
 let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, MessageCursor> = {};
+// Tracks the last message that was ACTUALLY PROCESSED by an agent (commitCursor).
+// Used by recoverPendingMessages() to detect IPC-injected but unprocessed messages.
+// lastAgentTimestamp may advance ahead of this when IPC injection succeeds but the
+// agent hasn't finished processing yet — if the service crashes in between, recovery
+// uses this cursor to find the gap.
+let lastCommittedCursor: Record<string, MessageCursor> = {};
 let messageLoopRunning = false;
 let ipcWatcherRunning = false;
 let shuttingDown = false;
@@ -283,6 +289,11 @@ const activeImReplyRoutes = new Map<string, string | null>();
 // Track consecutive IM send failures per JID for auto-unbind
 const imSendFailCounts = new Map<string, number>();
 const IM_SEND_FAIL_THRESHOLD = 3;
+
+// Groups whose pending messages were recovered after a restart.
+// processGroupMessages injects recent conversation history for these groups
+// so the fresh session has context despite the session being cleared.
+const recoveryGroups = new Set<string>();
 
 // Track consecutive IM health check failures per JID for safe auto-unbind
 const imHealthCheckFailCounts = new Map<string, number>();
@@ -755,6 +766,7 @@ async function handleClearCommand(chatJid: string): Promise<string> {
         broadcast: broadcastNewMessage,
         setLastAgentTimestamp: (jid: string, cursor: MessageCursor) => {
           lastAgentTimestamp[jid] = cursor;
+          lastCommittedCursor[jid] = cursor;
           saveState();
         },
       },
@@ -1379,6 +1391,35 @@ function loadState(): void {
     logger.warn('Corrupted last_agent_timestamp in DB, resetting');
     lastAgentTimestamp = {};
   }
+
+  // Load committed cursor (recovery-safe cursor that only advances on commitCursor)
+  const committedTs = getRouterState('last_committed_cursor');
+  try {
+    const parsed = committedTs
+      ? (JSON.parse(committedTs) as Record<string, unknown>)
+      : {};
+    const normalized: Record<string, MessageCursor> = {};
+    for (const [jid, raw] of Object.entries(parsed)) {
+      normalized[jid] = normalizeCursor(raw);
+    }
+    lastCommittedCursor = normalized;
+  } catch {
+    logger.warn('Corrupted last_committed_cursor in DB, resetting');
+    lastCommittedCursor = {};
+  }
+
+  // Migration: if lastCommittedCursor is empty but lastAgentTimestamp has data,
+  // seed lastCommittedCursor from lastAgentTimestamp to avoid re-processing all
+  // historical messages on the first run after this change.
+  if (
+    Object.keys(lastCommittedCursor).length === 0 &&
+    Object.keys(lastAgentTimestamp).length > 0
+  ) {
+    lastCommittedCursor = { ...lastAgentTimestamp };
+    logger.info('Migrated lastCommittedCursor from lastAgentTimestamp');
+    saveState();
+  }
+
   sessions = getAllSessions();
   registeredGroups = getAllRegisteredGroups();
 
@@ -1540,6 +1581,7 @@ function saveState(): void {
   setRouterState('last_timestamp', globalMessageCursor.timestamp);
   setRouterState('last_timestamp_id', globalMessageCursor.id);
   setRouterState('last_agent_timestamp', JSON.stringify(lastAgentTimestamp));
+  setRouterState('last_committed_cursor', JSON.stringify(lastCommittedCursor));
 }
 
 function registerGroup(jid: string, group: RegisteredGroup): void {
@@ -1733,7 +1775,42 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   activeImReplyRoutes.set(effectiveGroup.folder, replySourceImJid);
 
   const shared = isGroupShared(group.folder);
-  const prompt = formatMessages(missedMessages, shared);
+  let prompt = formatMessages(missedMessages, shared);
+
+  // Recovery mode: session was cleared to prevent session ghost, so inject
+  // recent conversation history to give the fresh session context.
+  const isRecovery = recoveryGroups.delete(chatJid);
+  if (isRecovery) {
+    const RECOVERY_HISTORY_LIMIT = 20;
+    const recentHistory = getMessagesPage(chatJid, undefined, RECOVERY_HISTORY_LIMIT);
+    // getMessagesPage returns DESC order; reverse to chronological, exclude
+    // the pending messages themselves (already in prompt).
+    const pendingIds = new Set(missedMessages.map((m) => m.id));
+    const historyMsgs = recentHistory
+      .reverse()
+      .filter((m) => !pendingIds.has(m.id));
+    if (historyMsgs.length > 0) {
+      const historyLines = historyMsgs.map((m) => {
+        const role = m.is_from_me ? 'assistant' : m.sender_name;
+        const truncated = m.content.length > 500
+          ? m.content.slice(0, 500) + '…'
+          : m.content;
+        // Strip lone surrogates to avoid API JSON errors
+        const cleaned = truncated.replace(/[\uD800-\uDFFF]/g, '');
+        return `[${role}] ${cleaned}`;
+      });
+      prompt =
+        '<system_context>\n' +
+        '服务刚重启，当前为新会话。以下是重启前的最近对话记录，供你了解上下文：\n\n' +
+        historyLines.join('\n') +
+        '\n</system_context>\n\n' +
+        prompt;
+      logger.info(
+        { group: group.name, historyCount: historyMsgs.length },
+        'Recovery: injected recent conversation history into prompt',
+      );
+    }
+  }
 
   const images = collectMessageImages(chatJid, missedMessages);
   const imagesForAgent = images.length > 0 ? images : undefined;
@@ -1745,6 +1822,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       directImReply,
       imageCount: images.length,
       shared,
+      isRecovery,
     },
     'Processing messages',
   );
@@ -1841,10 +1919,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const commitCursor = (): void => {
     if (cursorCommitted) return;
-    lastAgentTimestamp[chatJid] = {
-      timestamp: lastProcessed.timestamp,
-      id: lastProcessed.id,
-    };
+    // Use the higher of lastProcessed and the current lastAgentTimestamp.
+    // IPC injection may have advanced lastAgentTimestamp beyond lastProcessed
+    // (the initial batch); don't regress it.
+    const initial = { timestamp: lastProcessed.timestamp, id: lastProcessed.id };
+    const current = lastAgentTimestamp[chatJid];
+    const target =
+      current && current.timestamp > initial.timestamp ? current : initial;
+    lastAgentTimestamp[chatJid] = target;
+    // Mark this position as "actually processed by agent" for recovery safety.
+    lastCommittedCursor[chatJid] = target;
     saveState();
     cursorCommitted = true;
   };
@@ -4179,10 +4263,12 @@ async function processAgentConversation(
   const lastProcessed = missedMessages[missedMessages.length - 1];
   const commitCursor = (): void => {
     if (cursorCommitted) return;
-    lastAgentTimestamp[virtualChatJid] = {
-      timestamp: lastProcessed.timestamp,
-      id: lastProcessed.id,
-    };
+    const initial = { timestamp: lastProcessed.timestamp, id: lastProcessed.id };
+    const current = lastAgentTimestamp[virtualChatJid];
+    const target =
+      current && current.timestamp > initial.timestamp ? current : initial;
+    lastAgentTimestamp[virtualChatJid] = target;
+    lastCommittedCursor[virtualChatJid] = target;
     saveState();
     cursorCommitted = true;
   };
@@ -4749,10 +4835,12 @@ async function startMessageLoop(): Promise<void> {
 
                 // Advance cursor past these messages so they aren't re-processed
                 const lastMsg = groupMessages[groupMessages.length - 1];
-                lastAgentTimestamp[chatJid] = {
+                const billingCursor = {
                   timestamp: lastMsg.timestamp,
                   id: lastMsg.id,
                 };
+                lastAgentTimestamp[chatJid] = billingCursor;
+                lastCommittedCursor[chatJid] = billingCursor;
                 saveState();
                 continue;
               }
@@ -4852,17 +4940,41 @@ function recoverStuckPendingGroups(): void {
 
 /**
  * Startup recovery: check for unprocessed messages in registered groups.
- * Handles crash between advancing global cursor and processing messages.
+ *
+ * Uses `lastCommittedCursor` (updated only in commitCursor when an agent
+ * actually finishes processing) rather than `lastAgentTimestamp` (which
+ * advances when IPC injection succeeds).  This correctly detects messages
+ * that were IPC-injected but never processed because the service was
+ * killed before the agent could handle them.
+ *
+ * When pending messages are found, the group's SDK session is cleared to
+ * prevent the "session ghost" bug: if the previous agent was killed mid-
+ * response (SIGKILL / crash), the SDK session is left in a dirty state.
+ * Resuming it would cause the agent to complete the OLD interrupted work
+ * instead of processing the NEW pending messages, sending irrelevant
+ * replies to the user.
  */
 function recoverPendingMessages(): void {
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
-    const sinceCursor = lastAgentTimestamp[chatJid] || EMPTY_CURSOR;
+    const sinceCursor = lastCommittedCursor[chatJid] || EMPTY_CURSOR;
     const pending = getMessagesSince(chatJid, sinceCursor);
     if (pending.length > 0) {
+      // Clear stale session to avoid "session ghost" — the agent will start
+      // a fresh conversation and process the pending messages cleanly.
+      if (sessions[group.folder]) {
+        logger.info(
+          { group: group.name, folder: group.folder },
+          'Recovery: clearing stale session to prevent session ghost',
+        );
+        delete sessions[group.folder];
+        deleteSession(group.folder);
+      }
+
       logger.info(
         { group: group.name, pendingCount: pending.length },
         'Recovery: found unprocessed messages',
       );
+      recoveryGroups.add(chatJid);
       queue.enqueueMessageCheck(chatJid);
     }
   }
@@ -5963,6 +6075,7 @@ async function main(): Promise<void> {
     getLastAgentTimestamp: () => lastAgentTimestamp,
     setLastAgentTimestamp: (jid: string, cursor: MessageCursor) => {
       lastAgentTimestamp[jid] = cursor;
+      lastCommittedCursor[jid] = cursor;
       saveState();
     },
     advanceGlobalCursor: (cursor: MessageCursor) => {
