@@ -121,6 +121,7 @@ import {
   updateAllSessionCredentials,
   getUserIMPreferences,
   getUserImGeneralConfig,
+  getOpenAIProviderConfig,
 } from './runtime-config.js';
 import type {
   FeishuConnectConfig,
@@ -2546,11 +2547,43 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       return true;
     }
 
+    // Auto-switch to OpenAI when Claude is rate-limited / overloaded
+    const isRateLimit = /overloaded|limit|rate.?limit|quota|resets/i.test(errorDetail);
+    if (
+      isRateLimit &&
+      (effectiveGroup.llm_provider ?? 'claude') === 'claude'
+    ) {
+      const openaiCfg = getOpenAIProviderConfig();
+      const openaiReady =
+        (openaiCfg.authMode === 'chatgpt_oauth' && !!openaiCfg.oauthTokens?.accessToken) ||
+        !!openaiCfg.apiKey;
+
+      if (openaiReady) {
+        // Persist the switch (jid is the key in registeredGroups map = chatJid)
+        const switched = { ...group, llm_provider: 'openai' as const };
+        setRegisteredGroup(chatJid, switched);
+        registeredGroups[chatJid] = switched;
+
+        const notice = 'Claude 触发限流，已自动切换到 OpenAI，正在重试……';
+        sendSystemMessage(chatJid, 'agent_error', notice);
+        if (errorImChannel) {
+          sendImWithFailTracking(errorImChannel, `🔄 ${notice}`, []);
+        }
+        logger.warn(
+          { group: group.name, error: errorDetail },
+          'Claude rate-limited, auto-switched to OpenAI and re-queuing',
+        );
+        // Re-enqueue immediately (cursor not committed, messages will be retried)
+        queue.enqueueMessageCheck(chatJid);
+        triggerMessagesByFolder.delete(effectiveGroup.folder);
+        return false;
+      }
+    }
+
     sendSystemMessage(chatJid, 'agent_error', errorDetail);
     // Forward agent errors to IM so users aren't left waiting in silence
     if (errorImChannel) {
       // Build card button for rate-limit errors linking to the usage page
-      const isRateLimit = /limit|rate.?limit|quota|resets/i.test(errorDetail);
       const webPublicUrl = getSystemSettings().webPublicUrl || process.env.WEB_PUBLIC_URL;
       const sendOpts: IMSendOptions = {};
       if (isRateLimit && webPublicUrl) {
