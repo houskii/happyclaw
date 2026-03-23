@@ -177,7 +177,7 @@ import {
 import { injectMemoryAgentDeps } from './routes/memory-agent.js';
 import { injectFeishuApiDeps } from './routes/feishu-api.js';
 import { injectMemoryDeps } from './routes/memory.js';
-import { sendToolCommentary } from './im-commentary.js';
+import { sendToolCommentary, resetTurnCommentaryTimer } from './im-commentary.js';
 
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const execFileAsync = promisify(execFile);
@@ -1923,6 +1923,8 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
     turnObservabilityManager.clear(group.folder);
     syncPendingTurnObservability(group.folder);
+    // Reset im-commentary turn timer so next turn gets a fresh 30s warmup
+    resetTurnCommentaryTimer(group.folder);
   };
 
   if (effectiveGroup.created_by) {

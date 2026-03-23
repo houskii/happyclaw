@@ -32,6 +32,22 @@ const SKIP_TOOLS = new Set([
 const lastCommentaryTime = new Map<string, number>();
 
 /**
+ * Track the first tool-call time of the current turn per folder.
+ * Commentary only fires after MIN_TASK_DURATION_MS has elapsed — this
+ * suppresses noise for quick interactive responses (<30 s) while still
+ * reporting long background tasks.
+ */
+const turnFirstToolTime = new Map<string, number>();
+
+/** Minimum time (ms) a turn must be running before commentary starts. */
+const MIN_TASK_DURATION_MS = 30_000;
+
+/** Called when a turn completes so the next turn gets a fresh timer. */
+export function resetTurnCommentaryTimer(folder: string): void {
+  turnFirstToolTime.delete(folder);
+}
+
+/**
  * Generate and send a natural-language explanation of a tool call to IM.
  * Safe to call fire-and-forget — all errors are caught internally.
  */
@@ -51,8 +67,19 @@ export async function sendToolCommentary(opts: {
   // Skip trivial tools
   if (SKIP_TOOLS.has(toolName)) return;
 
-  // Rate limit: at most once per RATE_LIMIT_SECONDS per folder
   const now = Date.now();
+
+  // Record the first tool call time of this turn
+  if (!turnFirstToolTime.has(folder)) {
+    turnFirstToolTime.set(folder, now);
+  }
+
+  // Suppress commentary for the first MIN_TASK_DURATION_MS of a turn
+  // (avoids flooding the chat during quick interactive responses)
+  const turnStart = turnFirstToolTime.get(folder)!;
+  if (now - turnStart < MIN_TASK_DURATION_MS) return;
+
+  // Rate limit: at most once per RATE_LIMIT_SECONDS per folder
   const last = lastCommentaryTime.get(folder) ?? 0;
   if (now - last < RATE_LIMIT_SECONDS * 1000) return;
   lastCommentaryTime.set(folder, now);
