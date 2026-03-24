@@ -57,7 +57,7 @@ export function analyzeIntent(text: string): MessageIntent {
 
   const lower = trimmed.toLowerCase();
 
-  // Exact match first
+  // Exact match — only pure stop keyword with no extra content
   for (const kw of STOP_KEYWORDS) {
     if (lower === kw) return 'stop';
   }
@@ -65,7 +65,15 @@ export function analyzeIntent(text: string): MessageIntent {
     if (lower === kw) return 'correction';
   }
 
-  // Substring match (skip keywords that are common substrings of normal words)
+  // Substring match: if a stop keyword appears but the message has additional
+  // content beyond it, treat as correction (e.g. "算了 改做这个") — the user
+  // is redirecting, not just stopping.
+  for (const kw of STOP_KEYWORDS) {
+    if (!EXACT_ONLY.has(kw) && lower.includes(kw) && lower.length > kw.length + 3) {
+      return 'correction';
+    }
+  }
+  // Pure substring stop match (keyword + very little extra, like punctuation)
   for (const kw of STOP_KEYWORDS) {
     if (!EXACT_ONLY.has(kw) && lower.includes(kw)) return 'stop';
   }
