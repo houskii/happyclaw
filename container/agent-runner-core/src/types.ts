@@ -2,7 +2,7 @@
  * Core types for HappyClaw Agent Runner protocol.
  *
  * These types define the contract between the host process and any agent runner.
- * Provider-agnostic — used by Claude, OpenAI, and future runners.
+ * Used by the Claude runner and shared infrastructure.
  */
 
 // ─── StreamEvent (canonical, inline to avoid cross-project sync) ────

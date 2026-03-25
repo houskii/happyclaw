@@ -837,8 +837,8 @@ async function runQuery(
   // blocks for longer than this, force interrupt regardless.  This prevents
   // hung subprocesses (npx download stalls, unresponsive APIs) from freezing
   // the entire agent indefinitely.
-  // Default 20 minutes: generous enough for long-running tools (GPT delegate_task,
-  // complex builds) but catches truly stuck processes (npx download stalls).
+  // Default 20 minutes: generous enough for long-running tools (complex builds,
+  // large file operations) but catches truly stuck processes (npx download stalls).
   const TOOL_CALL_HARD_TIMEOUT_MS = parseInt(
     process.env.TOOL_CALL_HARD_TIMEOUT_MS || '1200000', 10,
   );

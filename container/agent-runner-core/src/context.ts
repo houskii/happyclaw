@@ -1,8 +1,8 @@
 /**
  * ContextManager — central orchestrator for plugins, tools, and system prompt assembly.
  *
- * Both Claude and OpenAI runners construct a ContextManager, register plugins,
- * then use it to get tools (adapted to provider format) and build the system prompt.
+ * The Claude runner constructs a ContextManager, registers plugins,
+ * then uses it to get tools (adapted to SDK format) and build the system prompt.
  */
 
 import type { ContainerInput } from './types.js';
