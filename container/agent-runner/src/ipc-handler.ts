@@ -5,7 +5,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
 import type { ContainerOutput } from './types.js';
 import type { SessionState } from './session-state.js';
 
@@ -188,7 +187,7 @@ export function waitForIpcMessage(
       }
       const { messages, modeChange } = drainIpcInput(paths, log);
       if (modeChange) {
-        state.currentPermissionMode = modeChange as PermissionMode;
+        state.currentPermissionMode = modeChange;
         log(`Mode change during idle: ${modeChange}`);
       }
       if (messages.length > 0) {

@@ -568,7 +568,7 @@ export async function runQuery(
       cwd: groupDir,
       additionalDirectories: extraDirs,
       model,
-      permissionMode: state.currentPermissionMode,
+      permissionMode: state.currentPermissionMode as PermissionMode,
       allowedTools,
       disallowedTools,
       systemPromptAppend,

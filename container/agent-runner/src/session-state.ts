@@ -1,5 +1,7 @@
 import fs from 'fs';
-import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+
+// PermissionMode 是字符串枚举，由各 provider 映射到自身概念
+type PermissionMode = string;
 
 /** Channels not seen for 24 hours are considered stale */
 const IM_CHANNEL_TTL_MS = 24 * 60 * 60 * 1000;
