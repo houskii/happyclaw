@@ -33,8 +33,8 @@ import type {
 } from './types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
-import { ClaudeSession } from './claude-session.js';
-import { createContextManager, coreToolsToSdkTools } from './mcp-adapter.js';
+import { ClaudeSession } from './providers/claude/claude-session.js';
+import { createContextManager, coreToolsToSdkTools } from './providers/claude/claude-mcp-adapter.js';
 import { SessionState } from './session-state.js';
 import { normalizeHomeFlags } from 'happyclaw-agent-runner-core';
 import {
@@ -67,16 +67,7 @@ const IM_CHANNELS_FILE = path.join(WORKSPACE_IPC, '.recent-im-channels.json');
 // need access to interrupt grace window state.
 const state = new SessionState();
 
-const DEFAULT_ALLOWED_TOOLS = [
-  'Bash',
-  'Read', 'Write', 'Edit', 'Glob', 'Grep',
-  'WebSearch', 'WebFetch',
-  'Task', 'TaskOutput', 'TaskStop',
-  'TeamCreate', 'TeamDelete', 'SendMessage',
-  'TodoWrite', 'ToolSearch', 'Skill',
-  'NotebookEdit',
-  'mcp__happyclaw__*'
-];
+import { DEFAULT_ALLOWED_TOOLS } from './providers/claude/claude-config.js';
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {

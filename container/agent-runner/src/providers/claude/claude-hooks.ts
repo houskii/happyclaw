@@ -1,17 +1,19 @@
 /**
- * Transcript archival and PreCompact hook.
+ * Claude-specific hooks: PreCompact transcript archival + Safety Lite.
  *
- * Extracted from index.ts — archives the full conversation transcript to
- * `conversations/{date}-{title}.md` and sends a `session_wrapup` IPC signal
- * so the Memory Agent can process the completed session.
+ * Merged from transcript-archive.ts and safety-lite.ts.
  */
 
 import fs from 'fs';
 import path from 'path';
-import type { HookCallback, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionsIndex, ParsedMessage } from './types.js';
-import { sanitizeFilename, generateFallbackName } from './utils.js';
+import type { HookCallback, PreCompactHookInput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type { SessionsIndex, ParsedMessage } from '../../types.js';
+import { sanitizeFilename, generateFallbackName } from '../../utils.js';
 import { writeIpcFile } from 'happyclaw-agent-runner-core';
+
+// ---------------------------------------------------------------------------
+// Transcript Archival (PreCompact hook)
+// ---------------------------------------------------------------------------
 
 // Mirror the workspace path resolution from index.ts
 const WORKSPACE_GROUP = process.env.HAPPYCLAW_WORKSPACE_GROUP || '/workspace/group';
@@ -159,4 +161,45 @@ export function formatTranscriptMarkdown(messages: ParsedMessage[], title?: stri
   }
 
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Safety Lite (PreToolUse hook — host mode only)
+// ---------------------------------------------------------------------------
+
+const DANGEROUS_PATTERNS = [
+  /rm\s+-rf\s+\/(?!tmp|workspace)/, // rm -rf / (excluding safe paths)
+  /DROP\s+(DATABASE|TABLE)\s/i, // DROP DATABASE/TABLE
+  />\s*\/dev\/sd/, // write to raw device
+  /mkfs\./, // format filesystem
+  /:\(\)\{ :\|:& \};:/, // fork bomb (escaped (){}|)
+];
+
+/**
+ * Lightweight PreToolUse hook for host mode only.
+ * Simple regex pattern matching — a "speed bump", not a security boundary.
+ */
+export function createSafetyLiteHook(): HookCallback {
+  return async (input, _toolUseID, _options) => {
+    const hookInput = input as PreToolUseHookInput;
+    if (hookInput.hook_event_name !== 'PreToolUse') return {};
+    if (hookInput.tool_name !== 'Bash') return {};
+    const cmd =
+      typeof hookInput.tool_input === 'object' &&
+      hookInput.tool_input !== null &&
+      'command' in hookInput.tool_input &&
+      typeof (hookInput.tool_input as Record<string, unknown>).command ===
+        'string'
+        ? (hookInput.tool_input as Record<string, unknown>).command as string
+        : '';
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(cmd)) {
+        return {
+          decision: 'block' as const,
+          reason: `Safety-lite blocked: ${pattern}`,
+        };
+      }
+    }
+    return {};
+  };
 }

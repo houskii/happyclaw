@@ -8,10 +8,9 @@
  */
 
 import { query, type PermissionMode, type Query, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import { createPreCompactHook } from './transcript-archive.js';
-import { createSafetyLiteHook } from './safety-lite.js';
-import { PREDEFINED_AGENTS } from './agent-definitions.js';
-import { resolveImageMimeType, filterOversizedImages } from './image-utils.js';
+import { createPreCompactHook, createSafetyLiteHook } from './claude-hooks.js';
+import { PREDEFINED_AGENTS } from './claude-agent-defs.js';
+import { resolveImageMimeType, filterOversizedImages } from '../../image-utils.js';
 
 export interface SDKUserMessage {
   type: 'user';

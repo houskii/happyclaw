@@ -14,8 +14,8 @@
 import type { PermissionMode, McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 
 import type { ContainerInput, ContainerOutput } from './types.js';
-import { StreamEventProcessor } from './stream-processor.js';
-import { ClaudeSession, type ClaudeSessionConfig } from './claude-session.js';
+import { StreamEventProcessor } from './providers/claude/claude-stream-processor.js';
+import { ClaudeSession, type ClaudeSessionConfig } from './providers/claude/claude-session.js';
 import { SessionState } from './session-state.js';
 import { buildChannelRoutingReminder, normalizeHomeFlags, ContextManager } from 'happyclaw-agent-runner-core';
 import {

@@ -9,8 +9,8 @@
  * - Cleanup of residual tool states
  */
 
-import type { ContainerOutput, StreamEvent } from './types.js';
-import { extractSkillName, summarizeToolInput } from './utils.js';
+import type { ContainerOutput, StreamEvent } from '../../types.js';
+import { extractSkillName, summarizeToolInput } from '../../utils.js';
 
 type EmitFn = (output: ContainerOutput) => void;
 type LogFn = (message: string) => void;
