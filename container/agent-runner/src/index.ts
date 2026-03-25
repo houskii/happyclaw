@@ -1,17 +1,26 @@
 /**
- * HappyClaw Agent Runner
- * Runs inside a container, receives config via stdin, outputs result to stdout
+ * HappyClaw Agent Runner — Protocol Bridge
  *
- * Input protocol:
- *   Stdin: Full ContainerInput JSON (read until EOF, like before)
- *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
- *          Files: {type:"message", text:"..."}.json — polled and consumed
- *          Sentinel: /workspace/ipc/input/_close — signals session end
+ * Entry point and query loop orchestration. Receives ContainerInput via stdin,
+ * runs Claude queries in a loop (query → wait for IPC → repeat), and outputs
+ * ContainerOutput wrapped in OUTPUT_MARKER pairs to stdout.
  *
- * Stdout protocol:
- *   Each result is wrapped in OUTPUT_START_MARKER / OUTPUT_END_MARKER pairs.
- *   Multiple results may be emitted (one per agent teams result).
- *   Final marker after loop ends signals completion.
+ * Module responsibilities (nothing else belongs here):
+ * - stdin/stdout protocol (ContainerInput/Output, OUTPUT_MARKER)
+ * - Query loop: run → wait IPC → next query → until _close/_drain
+ * - Error recovery: context overflow retries, session resume fallback
+ * - Signal handlers: SIGTERM/SIGINT/EPIPE/uncaughtException
+ * - MCP server lifecycle: rebuild between queries
+ *
+ * All other logic is in dedicated modules:
+ * - session-state.ts: shared mutable state
+ * - claude-session.ts: SDK query lifecycle
+ * - query-runner.ts: single query execution
+ * - context-builder.ts: system prompt assembly
+ * - ipc-handler.ts: IPC sentinel/message handling
+ * - transcript-archive.ts: PreCompact hook + conversation archival
+ * - safety-lite.ts: host-mode safety checks
+ * - image-utils.ts: image processing utilities
  */
 
 import fs from 'fs';
