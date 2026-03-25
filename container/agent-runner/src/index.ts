@@ -36,7 +36,7 @@ export type { StreamEventType, StreamEvent } from './types.js';
 import { ClaudeSession } from './claude-session.js';
 import { createContextManager, coreToolsToSdkTools } from './mcp-adapter.js';
 import { SessionState } from './session-state.js';
-import { normalizeHomeFlags } from './context-builder.js';
+import { normalizeHomeFlags } from 'happyclaw-agent-runner-core';
 import {
   buildIpcPaths,
   shouldDrain,
@@ -211,6 +211,7 @@ async function main(): Promise<void> {
         WORKSPACE_MEMORY,
         CLAUDE_MODEL,
         loadUserMcpServers,
+        ctxMgr,
         resumeAt,
         true,
         DEFAULT_ALLOWED_TOOLS,

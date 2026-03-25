@@ -17,7 +17,7 @@ import type { ContainerInput, ContainerOutput } from './types.js';
 import { StreamEventProcessor } from './stream-processor.js';
 import { ClaudeSession, type ClaudeSessionConfig } from './claude-session.js';
 import { SessionState } from './session-state.js';
-import { buildSystemPromptAppend, buildChannelRoutingReminder, normalizeHomeFlags } from './context-builder.js';
+import { buildChannelRoutingReminder, normalizeHomeFlags, ContextManager } from 'happyclaw-agent-runner-core';
 import {
   IPC_POLL_MS,
   shouldClose,
@@ -517,6 +517,7 @@ export async function runQuery(
   memoryDir: string,
   model: string,
   loadUserMcpServers: () => Record<string, unknown>,
+  ctxMgr: ContextManager,
   resumeAt?: string,
   emitOutput = true,
   allowedTools: string[] = [],
@@ -538,15 +539,13 @@ export async function runQuery(
     );
   });
 
-  // Build system prompt from context-builder
+  // Build system prompt via ContextManager (unified prompt assembly)
   const { isHome, isAdminHome } = normalizeHomeFlags(containerInput);
-  const systemPromptAppend = buildSystemPromptAppend({
-    state,
-    containerInput,
-    groupDir,
-    globalDir,
-    memoryDir,
+  ctxMgr.updateDynamicContext({
+    recentImChannels: state.recentImChannels,
+    contextSummary: containerInput.contextSummary,
   });
+  const systemPromptAppend = ctxMgr.buildAppendPrompt();
 
   // All containers can access global and memory directories via additionalDirectories.
   const extraDirs = [globalDir, memoryDir];
