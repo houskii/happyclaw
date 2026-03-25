@@ -87,12 +87,10 @@ export interface SystemSettings {
   turnMaxBatchMs: number;
   traceRetentionDays: number;
   webPublicUrl: string;
-  autoSwitchToOpenAIOnRateLimit: boolean;
   defaultClaudeModel: string;
-  defaultOpenAIModel: string;
 }
 
-export type SettingsTab = 'claude' | 'openai' | 'registration' | 'appearance' | 'system' | 'profile' | 'my-channels' | 'security' | 'groups' | 'memory' | 'skills' | 'mcp-servers' | 'agent-definitions' | 'users' | 'about' | 'bindings';
+export type SettingsTab = 'claude' | 'registration' | 'appearance' | 'system' | 'profile' | 'my-channels' | 'security' | 'groups' | 'memory' | 'skills' | 'mcp-servers' | 'agent-definitions' | 'users' | 'about' | 'bindings';
 
 export function getErrorMessage(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err !== null && 'message' in err) {

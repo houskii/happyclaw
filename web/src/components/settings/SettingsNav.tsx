@@ -14,7 +14,6 @@ import {
   SlidersHorizontal,
   Link2,
   Bot,
-  Zap,
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import type { SettingsTab } from './types';
@@ -28,7 +27,6 @@ interface NavItem {
 
 const systemItems: NavItem[] = [
   { key: 'claude', label: 'Claude 提供商', icon: <ShieldCheck className="w-4 h-4" />, group: 'system' },
-  { key: 'openai', label: 'OpenAI 提供商', icon: <Zap className="w-4 h-4" />, group: 'system' },
   { key: 'registration', label: '注册管理', icon: <UserPlus className="w-4 h-4" />, group: 'system' },
   { key: 'appearance', label: '外观（全局）', icon: <Palette className="w-4 h-4" />, group: 'system' },
   { key: 'system', label: '系统参数', icon: <SlidersHorizontal className="w-4 h-4" />, group: 'system' },

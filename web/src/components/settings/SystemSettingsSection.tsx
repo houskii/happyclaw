@@ -171,9 +171,7 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
   const [billingCurrency, setBillingCurrency] = useState('USD');
   const [billingCurrencyRate, setBillingCurrencyRate] = useState(1);
   const [webPublicUrl, setWebPublicUrl] = useState('');
-  const [autoSwitchToOpenAIOnRateLimit, setAutoSwitchToOpenAIOnRateLimit] = useState(false);
   const [defaultClaudeModel, setDefaultClaudeModel] = useState('');
-  const [defaultOpenAIModel, setDefaultOpenAIModel] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -199,9 +197,7 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
         setBillingCurrency(data.billingCurrency ?? 'USD');
         setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
         setWebPublicUrl(data.webPublicUrl ?? '');
-        setAutoSwitchToOpenAIOnRateLimit(data.autoSwitchToOpenAIOnRateLimit ?? false);
         setDefaultClaudeModel(data.defaultClaudeModel ?? '');
-        setDefaultOpenAIModel(data.defaultOpenAIModel ?? '');
       } catch (err) {
         setError(getErrorMessage(err, '加载系统参数失败'));
       } finally {
@@ -249,9 +245,7 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
         billingCurrency,
         billingCurrencyRate,
         webPublicUrl,
-        autoSwitchToOpenAIOnRateLimit,
         defaultClaudeModel,
-        defaultOpenAIModel,
       };
       for (const f of fields) {
         const val = displayValues[f.key];
@@ -271,9 +265,7 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
       setBillingCurrency(data.billingCurrency ?? 'USD');
       setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
       setWebPublicUrl(data.webPublicUrl ?? '');
-      setAutoSwitchToOpenAIOnRateLimit(data.autoSwitchToOpenAIOnRateLimit ?? false);
       setDefaultClaudeModel(data.defaultClaudeModel ?? '');
-      setDefaultOpenAIModel(data.defaultOpenAIModel ?? '');
       // 刷新计费状态，更新导航栏可见性
       loadBillingStatus();
       setNotice('系统参数已保存，新参数将对后续启动的容器/进程生效');
@@ -469,20 +461,6 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
             用于飞书卡片按钮跳转等场景。留空则不生成跳转链接。
           </p>
         </div>
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <div className="text-sm font-medium text-foreground">限流时自动切换到 OpenAI</div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Claude 触发限流或 overloaded 时自动将当前会话切换为 OpenAI 并重试。需提前配置 OpenAI 认证信息。
-            </p>
-          </div>
-          <ToggleSwitch
-            checked={autoSwitchToOpenAIOnRateLimit}
-            onChange={setAutoSwitchToOpenAIOnRateLimit}
-            aria-label="限流时自动切换到 OpenAI"
-            disabled={!canManage}
-          />
-        </div>
       </div>
 
       {/* 全局模型默认值 */}
@@ -510,27 +488,6 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
           </datalist>
           <p className="text-xs text-muted-foreground mt-1">
             留空则使用 Claude 提供商配置中的模型，最终默认为 opus。
-          </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1">
-            OpenAI 默认模型
-          </label>
-          <Input
-            type="text"
-            value={defaultOpenAIModel}
-            onChange={(e) => setDefaultOpenAIModel(e.target.value)}
-            placeholder="gpt-5.4 / gpt-5.3-codex 或完整模型 ID"
-            className="max-w-md font-mono"
-            list="sys-openai-model-presets"
-          />
-          <datalist id="sys-openai-model-presets">
-            <option value="gpt-5.4" />
-            <option value="gpt-5.4-mini" />
-            <option value="gpt-5.3-codex" />
-          </datalist>
-          <p className="text-xs text-muted-foreground mt-1">
-            留空则使用 OpenAI 提供商配置中的模型。
           </p>
         </div>
       </div>
