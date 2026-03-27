@@ -97,7 +97,7 @@ export class CodexRunner implements AgentRunner {
       workspaceMemory: memoryDir,
       userId: containerInput.userId,
       skillsDirs,
-    }, { includeSkills: true });
+    });
 
     // Write initial instructions file
     this.instructionsFile = path.join(this.tmpDir, 'instructions.md');

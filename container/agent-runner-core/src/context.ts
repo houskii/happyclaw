@@ -20,13 +20,19 @@ export class ContextManager {
   private plugins: ContextPlugin[] = [];
   private toolMap = new Map<string, ToolDefinition>();
   private readonly ctx: PluginContext;
+  private readonly nativeCapabilities: Set<string>;
 
-  constructor(ctx: PluginContext) {
+  constructor(ctx: PluginContext, nativeCapabilities?: string[]) {
     this.ctx = ctx;
+    this.nativeCapabilities = new Set(nativeCapabilities ?? []);
   }
 
-  /** Register a plugin. Order matters for system prompt assembly. Returns this for chaining. */
+  /** Register a plugin. Order matters for system prompt assembly. Returns this for chaining.
+   *  Plugins whose name matches a native capability are silently skipped. */
   register(plugin: ContextPlugin): this {
+    if (this.nativeCapabilities.has(plugin.name)) {
+      return this;
+    }
     this.plugins.push(plugin);
     // Rebuild tool map
     if (plugin.isEnabled(this.ctx)) {

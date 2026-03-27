@@ -19,8 +19,8 @@ import { InvokeAgentPlugin } from './plugins/invoke-agent-plugin.js';
 // ─── Options ─────────────────────────────────────────────────
 
 export interface ContextManagerOptions {
-  /** Register SkillsPlugin (Codex needs it; Claude has native skill support). */
-  includeSkills?: boolean;
+  /** Capability names the provider handles natively — matching plugins are skipped. */
+  nativeCapabilities?: string[];
   /** Backend API URL. Defaults to HAPPYCLAW_API_URL or http://localhost:3000. */
   apiUrl?: string;
   /** Backend API token. Defaults to HAPPYCLAW_INTERNAL_TOKEN. */
@@ -48,17 +48,13 @@ export function createContextManager(
   const memorySendTimeoutMs = options?.memorySendTimeoutMs
     ?? parseInt(process.env.HAPPYCLAW_MEMORY_SEND_TIMEOUT || '120000', 10);
 
-  const ctxMgr = new ContextManager(ctx);
+  const ctxMgr = new ContextManager(ctx, options?.nativeCapabilities);
 
   // ── Always-on plugins ──
   ctxMgr.register(new MessagingPlugin());
   ctxMgr.register(new TasksPlugin());
   ctxMgr.register(new GroupsPlugin());
-
-  // ── Skills (Codex only — Claude SDK has native skill support) ──
-  if (options?.includeSkills) {
-    ctxMgr.register(new SkillsPlugin());
-  }
+  ctxMgr.register(new SkillsPlugin());
 
   // ── Memory (requires userId to be meaningful) ──
   if (ctx.userId) {

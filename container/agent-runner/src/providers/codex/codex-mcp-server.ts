@@ -48,7 +48,7 @@ function createMcpContextManager() {
     workspaceMemory: WORKSPACE_MEMORY,
     userId: USER_ID || undefined,
     skillsDirs,
-  }, { includeSkills: true });
+  });
 }
 
 // ---------------------------------------------------------------------------

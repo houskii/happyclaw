@@ -127,7 +127,7 @@ export class ClaudeRunner implements AgentRunner {
       userId: containerInput.userId,
       skillsDirs,
     };
-    this.ctxMgr = createContextManager(pluginCtx);
+    this.ctxMgr = createContextManager(pluginCtx, { nativeCapabilities: ['skills'] });
 
     // Build MCP server config
     this.mcpServerConfigBuilder = () => createSdkMcpServer({

@@ -10,8 +10,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
-
 import type { ContainerInput, ContainerOutput } from './types.js';
 export type { StreamEventType, StreamEvent } from './types.js';
 
