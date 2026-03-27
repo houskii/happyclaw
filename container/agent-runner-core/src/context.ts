@@ -1,25 +1,38 @@
 /**
  * ContextManager — central orchestrator for plugins, tools, and system prompt assembly.
  *
- * Both Claude and OpenAI runners construct a ContextManager, register plugins,
- * then use it to get tools (adapted to provider format) and build the system prompt.
+ * Provides two-level prompt API:
+ * - buildAppendPrompt(): for Claude (appends to preset)
+ * - buildFullPrompt() / writeFullPromptToFile(): for Codex etc.
+ * - buildSystemPrompt(): legacy API (calls buildFullPrompt internally)
  */
 
+import fs from 'fs';
 import type { ContainerInput } from './types.js';
 import type { ContextPlugin, PluginContext, ToolDefinition, ToolResult } from './plugin.js';
-import { buildBaseSystemPrompt } from './prompt-builder.js';
+import {
+  buildBasePrompt,
+  buildAppendPrompt as buildAppendPromptImpl,
+  buildFullPrompt as buildFullPromptImpl,
+} from './prompt-builder.js';
 
 export class ContextManager {
   private plugins: ContextPlugin[] = [];
   private toolMap = new Map<string, ToolDefinition>();
   private readonly ctx: PluginContext;
+  private readonly nativeCapabilities: Set<string>;
 
-  constructor(ctx: PluginContext) {
+  constructor(ctx: PluginContext, nativeCapabilities?: string[]) {
     this.ctx = ctx;
+    this.nativeCapabilities = new Set(nativeCapabilities ?? []);
   }
 
-  /** Register a plugin. Order matters for system prompt assembly. Returns this for chaining. */
+  /** Register a plugin. Order matters for system prompt assembly. Returns this for chaining.
+   *  Plugins whose name matches a native capability are silently skipped. */
   register(plugin: ContextPlugin): this {
+    if (this.nativeCapabilities.has(plugin.name)) {
+      return this;
+    }
     this.plugins.push(plugin);
     // Rebuild tool map
     if (plugin.isEnabled(this.ctx)) {
@@ -44,21 +57,58 @@ export class ContextManager {
     return tool.execute(args);
   }
 
-  /** Build the full system prompt from base sections + plugin contributions. */
-  buildSystemPrompt(input: ContainerInput, providerInfo?: string): string {
-    const parts: string[] = [];
-
-    // Base prompt (environment, workspace instructions, global instructions)
-    parts.push(buildBaseSystemPrompt(input, this.ctx, providerInfo));
-
-    // Plugin sections
-    for (const plugin of this.plugins) {
-      if (!plugin.isEnabled(this.ctx)) continue;
-      const section = plugin.getSystemPromptSection(this.ctx);
-      if (section) parts.push(section);
+  /**
+   * Update dynamic context fields before each query.
+   * These values may change between queries (e.g., new IM channels discovered).
+   */
+  updateDynamicContext(updates: {
+    recentImChannels?: Set<string>;
+    contextSummary?: string;
+    providerInfo?: string;
+  }): void {
+    if (updates.recentImChannels !== undefined) {
+      this.ctx.recentImChannels = updates.recentImChannels;
     }
+    if (updates.contextSummary !== undefined) {
+      this.ctx.contextSummary = updates.contextSummary;
+    }
+    if (updates.providerInfo !== undefined) {
+      this.ctx.providerInfo = updates.providerInfo;
+    }
+  }
 
-    return parts.filter(Boolean).join('\n\n');
+  /**
+   * Build the append prompt — all guideline segments + plugin contributions.
+   * Used by Claude (appends to the claude_code preset).
+   */
+  buildAppendPrompt(): string {
+    return buildAppendPromptImpl(this.ctx, this.plugins);
+  }
+
+  /**
+   * Build the full prompt = base + append.
+   * Used by Codex and other providers without a preset.
+   */
+  buildFullPrompt(): string {
+    return buildFullPromptImpl(this.ctx, this.plugins);
+  }
+
+  /**
+   * Write the full prompt to a file (convenience for Codex's model_instructions_file).
+   */
+  writeFullPromptToFile(filePath: string): void {
+    fs.writeFileSync(filePath, this.buildFullPrompt(), 'utf-8');
+  }
+
+  /**
+   * Build the full system prompt from base sections + plugin contributions.
+   * @deprecated Use buildAppendPrompt() or buildFullPrompt() instead.
+   */
+  buildSystemPrompt(_input: ContainerInput, providerInfo?: string): string {
+    if (providerInfo) {
+      this.ctx.providerInfo = providerInfo;
+    }
+    return this.buildFullPrompt();
   }
 
   /** Get the plugin context (read-only). */

@@ -1,9 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
-import https from 'https';
 import path from 'path';
-
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 import { ASSISTANT_NAME, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
@@ -222,8 +219,6 @@ interface StoredFeishuProviderConfigV1 {
   streamingCard?: boolean;
   /** Send tool-call IM commentary during long-running tasks. */
   imCommentary?: boolean;
-  /** Use GPT (instead of Haiku) for IM commentary. */
-  imCommentaryUseGpt?: boolean;
 }
 
 interface StoredTelegramProviderConfigV1 {
@@ -404,7 +399,7 @@ function normalizeProfileId(input: unknown): string {
 
 function sanitizeCustomEnvMap(
   input: Record<string, string>,
-  options?: { skipReservedClaudeKeys?: boolean },
+  options?: { skipReservedClaudeKeys?: boolean; skipReservedCodexKeys?: boolean },
 ): Record<string, string> {
   const entries = Object.entries(input);
   if (entries.length > MAX_CUSTOM_ENV_ENTRIES) {
@@ -419,6 +414,9 @@ function sanitizeCustomEnvMap(
       throw new Error(`Invalid env key: ${key}`);
     }
     if (options?.skipReservedClaudeKeys && RESERVED_CLAUDE_ENV_KEYS.has(key)) {
+      continue;
+    }
+    if (options?.skipReservedCodexKeys && RESERVED_CODEX_ENV_KEYS.has(key)) {
       continue;
     }
     out[key] = sanitizeEnvValue(
@@ -2347,8 +2345,6 @@ export interface UserFeishuConfig {
   streamingCard?: boolean;
   /** Send tool-call IM commentary during long-running tasks. */
   imCommentary?: boolean;
-  /** Use GPT (instead of Haiku) for IM commentary when a GPT provider is configured. */
-  imCommentaryUseGpt?: boolean;
 }
 
 export interface UserFeishuOAuthTokens {
@@ -2410,7 +2406,6 @@ export function getUserFeishuConfig(userId: string): UserFeishuConfig | null {
       replyThreadingMode: stored.replyThreadingMode === 'agent' ? 'agent' : 'auto',
       streamingCard: stored.streamingCard ?? false,
       imCommentary: stored.imCommentary ?? false,
-      imCommentaryUseGpt: stored.imCommentaryUseGpt ?? false,
     };
   } catch (err) {
     logger.warn({ err, userId }, 'Failed to read user Feishu config');
@@ -2430,7 +2425,6 @@ export function saveUserFeishuConfig(
     replyThreadingMode: next.replyThreadingMode === 'agent' ? 'agent' : 'auto',
     streamingCard: next.streamingCard ?? false,
     imCommentary: next.imCommentary ?? false,
-    imCommentaryUseGpt: next.imCommentaryUseGpt ?? false,
   };
 
   // Preserve existing OAuth tokens when saving IM config
@@ -2445,7 +2439,6 @@ export function saveUserFeishuConfig(
     replyThreadingMode: normalized.replyThreadingMode,
     streamingCard: normalized.streamingCard,
     imCommentary: normalized.imCommentary,
-    imCommentaryUseGpt: normalized.imCommentaryUseGpt,
     ...(existing?.oauthSecret ? { oauthSecret: existing.oauthSecret } : {}),
     ...(existing?.oauthAuthorizedAt
       ? { oauthAuthorizedAt: existing.oauthAuthorizedAt }
@@ -2933,11 +2926,8 @@ export interface SystemSettings {
   feishuDocDomain: string;
   // Web
   webPublicUrl: string;
-  // OpenAI
-  autoSwitchToOpenAIOnRateLimit: boolean;
   // Global default models (workspace-level overrides these)
   defaultClaudeModel: string;
-  defaultOpenAIModel: string;
 }
 
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -2964,9 +2954,7 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   feishuApiDomain: 'open.feishu.cn',
   feishuDocDomain: 'bytedance.larkoffice.com',
   webPublicUrl: '',
-  autoSwitchToOpenAIOnRateLimit: false,
   defaultClaudeModel: '',
-  defaultOpenAIModel: '',
 };
 
 function parseIntEnv(envVar: string | undefined, fallback: number): number {
@@ -3086,18 +3074,10 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       typeof raw.webPublicUrl === 'string'
         ? raw.webPublicUrl
         : DEFAULT_SYSTEM_SETTINGS.webPublicUrl,
-    autoSwitchToOpenAIOnRateLimit:
-      typeof raw.autoSwitchToOpenAIOnRateLimit === 'boolean'
-        ? raw.autoSwitchToOpenAIOnRateLimit
-        : DEFAULT_SYSTEM_SETTINGS.autoSwitchToOpenAIOnRateLimit,
     defaultClaudeModel:
       typeof raw.defaultClaudeModel === 'string'
         ? raw.defaultClaudeModel.trim()
         : DEFAULT_SYSTEM_SETTINGS.defaultClaudeModel,
-    defaultOpenAIModel:
-      typeof raw.defaultOpenAIModel === 'string'
-        ? raw.defaultOpenAIModel.trim()
-        : DEFAULT_SYSTEM_SETTINGS.defaultOpenAIModel,
   };
 }
 
@@ -3183,9 +3163,7 @@ function buildEnvFallbackSettings(): SystemSettings {
       process.env.FEISHU_DOC_DOMAIN || DEFAULT_SYSTEM_SETTINGS.feishuDocDomain,
     webPublicUrl:
       process.env.WEB_PUBLIC_URL || DEFAULT_SYSTEM_SETTINGS.webPublicUrl,
-    autoSwitchToOpenAIOnRateLimit: DEFAULT_SYSTEM_SETTINGS.autoSwitchToOpenAIOnRateLimit,
     defaultClaudeModel: process.env.DEFAULT_CLAUDE_MODEL || DEFAULT_SYSTEM_SETTINGS.defaultClaudeModel,
-    defaultOpenAIModel: process.env.DEFAULT_OPENAI_MODEL || DEFAULT_SYSTEM_SETTINGS.defaultOpenAIModel,
   };
 }
 
@@ -3346,61 +3324,91 @@ export function saveUserIMPreferences(
   return merged;
 }
 
-// ─── OpenAI Provider Config ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// ─── Codex Provider Config ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
 
-const OPENAI_CONFIG_FILE = path.join(CLAUDE_CONFIG_DIR, 'openai-provider.json');
+const CODEX_CONFIG_FILE = path.join(CLAUDE_CONFIG_DIR, 'codex-provider.json');
+const CODEX_CONFIG_AUDIT_FILE = path.join(
+  CLAUDE_CONFIG_DIR,
+  'codex-provider.audit.log',
+);
+const MAX_CODEX_PROFILES = 20;
+const RESERVED_CODEX_ENV_KEYS = new Set([
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'HAPPYCLAW_CODEX_MODEL',
+]);
 
-/** Codex CLI OAuth constants */
-const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const CODEX_AUTH_BASE = 'https://auth.openai.com';
-const CODEX_SCOPES =
-  'openid profile email offline_access api.connectors.read api.connectors.invoke';
+export type CodexProviderMode = 'cli' | 'api_key';
 
-export type OpenAIAuthMode = 'api_key' | 'chatgpt_oauth';
-
-export interface OpenAIOAuthTokens {
-  accessToken: string;
-  refreshToken: string;
-  idToken?: string;
-  expiresAt?: number; // Unix ms
+interface CodexSecretPayload {
+  openaiApiKey: string;
 }
 
-export interface OpenAIProviderConfig {
-  authMode: OpenAIAuthMode;
-  apiKey: string;
-  baseUrl?: string;
-  model?: string;
-  proxyUrl?: string;
-  oauthTokens?: OpenAIOAuthTokens;
-  oauthExpired?: boolean;
-  updatedAt?: string;
-}
-
-/** Stored on disk (encrypted secrets + plaintext metadata) */
-interface OpenAIStoredConfig {
-  authMode: string;
-  secrets: EncryptedSecrets;
+export interface CodexProviderProfile {
+  id: string;
+  name: string;
+  openaiApiKey: string;
   baseUrl: string;
-  model: string;
-  proxyUrl?: string;
+  defaultModel: string;
+  updatedAt: string | null;
+  customEnv: Record<string, string>;
+}
+
+export interface CodexProviderProfilePublic {
+  id: string;
+  name: string;
+  hasOpenaiApiKey: boolean;
+  openaiApiKeyMasked: string | null;
+  baseUrl: string;
+  defaultModel: string;
+  updatedAt: string | null;
+  customEnv: Record<string, string>;
+}
+
+interface StoredCodexProfileV1 {
+  id: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
   updatedAt: string;
+  secrets: EncryptedSecrets;
+  customEnv?: Record<string, string>;
 }
 
-interface OpenAISecretPayload {
-  apiKey?: string;
-  accessToken?: string;
-  refreshToken?: string;
-  idToken?: string;
-  expiresAt?: number;
+interface StoredCodexProviderConfigV1 {
+  version: 1;
+  mode: CodexProviderMode;
+  activeProfileId: string;
+  profiles: StoredCodexProfileV1[];
 }
 
-function encryptOpenAISecrets(payload: OpenAISecretPayload): EncryptedSecrets {
+export interface LocalCodexCliStatus {
+  detected: boolean;
+  hasAuth: boolean;
+  authMode: string | null;
+  accountId: string | null;
+  lastRefresh: string | null;
+}
+
+interface CodexStoredStateResolved {
+  mode: CodexProviderMode;
+  activeProfileId: string;
+  profiles: StoredCodexProfileV1[];
+}
+
+// ─── Codex encryption ───────────────────────────────────────────
+
+function encryptCodexSecret(payload: CodexSecretPayload): EncryptedSecrets {
   const key = getOrCreateEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+
   const plaintext = Buffer.from(JSON.stringify(payload), 'utf-8');
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
+
   return {
     iv: iv.toString('base64'),
     tag: tag.toString('base64'),
@@ -3408,525 +3416,429 @@ function encryptOpenAISecrets(payload: OpenAISecretPayload): EncryptedSecrets {
   };
 }
 
-function decryptOpenAISecrets(secrets: EncryptedSecrets): OpenAISecretPayload {
+function decryptCodexSecret(secrets: EncryptedSecrets): CodexSecretPayload {
   const key = getOrCreateEncryptionKey();
   const iv = Buffer.from(secrets.iv, 'base64');
   const tag = Buffer.from(secrets.tag, 'base64');
   const encrypted = Buffer.from(secrets.data, 'base64');
+
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
+
   const decrypted = Buffer.concat([
     decipher.update(encrypted),
     decipher.final(),
   ]).toString('utf-8');
-  return JSON.parse(decrypted) as OpenAISecretPayload;
-}
-
-export function getOpenAIProviderConfig(): OpenAIProviderConfig {
-  try {
-    if (fs.existsSync(OPENAI_CONFIG_FILE)) {
-      const raw = JSON.parse(
-        fs.readFileSync(OPENAI_CONFIG_FILE, 'utf-8'),
-      ) as OpenAIStoredConfig;
-      const authMode: OpenAIAuthMode =
-        raw.authMode === 'chatgpt_oauth' ? 'chatgpt_oauth' : 'api_key';
-      const config: OpenAIProviderConfig = { authMode, apiKey: '' };
-
-      if (raw.secrets) {
-        const decrypted = decryptOpenAISecrets(raw.secrets);
-        config.apiKey = decrypted.apiKey || '';
-        if (decrypted.accessToken && decrypted.refreshToken) {
-          config.oauthTokens = {
-            accessToken: decrypted.accessToken,
-            refreshToken: decrypted.refreshToken,
-            idToken: decrypted.idToken,
-            expiresAt: decrypted.expiresAt,
-          };
-          // Schedule lazy refresh if token expires within 5 minutes
-          if (
-            config.oauthTokens.expiresAt &&
-            config.oauthTokens.expiresAt < Date.now() + 5 * 60 * 1000
-          ) {
-            config.oauthExpired = true;
-            scheduleOpenAITokenRefresh();
-          }
-        }
-      }
-      if (raw.baseUrl) config.baseUrl = raw.baseUrl;
-      if (raw.model) config.model = raw.model;
-      if (raw.proxyUrl) config.proxyUrl = raw.proxyUrl;
-      if (raw.updatedAt) config.updatedAt = raw.updatedAt;
-      return config;
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Failed to read OpenAI provider config');
-  }
-  return {
-    authMode: 'api_key',
-    apiKey: process.env.OPENAI_API_KEY || '',
-    baseUrl: process.env.OPENAI_BASE_URL || undefined,
-    model: process.env.OPENAI_MODEL || undefined,
-  };
-}
-
-// Debounced auto-refresh: only one refresh attempt at a time
-let _refreshInProgress = false;
-function scheduleOpenAITokenRefresh(): void {
-  if (_refreshInProgress) return;
-  _refreshInProgress = true;
-  refreshOpenAIOAuthTokens()
-    .then((ok) => {
-      if (!ok) logger.warn('OpenAI OAuth token auto-refresh failed');
-    })
-    .catch((err) => {
-      logger.warn({ err }, 'OpenAI OAuth token auto-refresh error');
-    })
-    .finally(() => {
-      _refreshInProgress = false;
-    });
-}
-
-export function saveOpenAIProviderConfig(
-  config: Omit<OpenAIProviderConfig, 'updatedAt'>,
-): OpenAIProviderConfig {
-  fs.mkdirSync(CLAUDE_CONFIG_DIR, { recursive: true });
-
-  const secretPayload: OpenAISecretPayload = { apiKey: config.apiKey };
-  if (config.oauthTokens) {
-    secretPayload.accessToken = config.oauthTokens.accessToken;
-    secretPayload.refreshToken = config.oauthTokens.refreshToken;
-    secretPayload.idToken = config.oauthTokens.idToken;
-    secretPayload.expiresAt = config.oauthTokens.expiresAt;
-  }
-
-  const stored: OpenAIStoredConfig = {
-    authMode: config.authMode,
-    secrets: encryptOpenAISecrets(secretPayload),
-    baseUrl: config.baseUrl || '',
-    model: config.model || '',
-    proxyUrl: config.proxyUrl || undefined,
-    updatedAt: new Date().toISOString(),
-  };
-
-  fs.writeFileSync(
-    OPENAI_CONFIG_FILE,
-    JSON.stringify(stored, null, 2),
-    { encoding: 'utf-8', mode: 0o600 },
-  );
-  return { ...config, updatedAt: stored.updatedAt };
-}
-
-// ─── Codex Device Code OAuth Flow ────────────────────────────
-
-export interface DeviceCodeInitResult {
-  userCode: string;
-  verificationUrl: string;
-  deviceAuthId: string;
-  interval: number; // seconds
-  expiresIn: number; // seconds
-}
-
-export interface DeviceCodePollResult {
-  status: 'pending' | 'complete' | 'expired' | 'error';
-  error?: string;
-}
-
-/**
- * Make an HTTPS request, optionally through a proxy.
- * Falls back to native fetch when no proxy is configured.
- */
-function proxiedFetch(
-  url: string,
-  options: {
-    method: string;
-    headers: Record<string, string>;
-    body: string;
-  },
-  proxyUrl?: string,
-): Promise<{ ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<unknown> }> {
-  if (!proxyUrl) {
-    return fetch(url, options);
-  }
-
-  const agent = new HttpsProxyAgent(proxyUrl);
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const req = https.request(
-      {
-        hostname: parsed.hostname,
-        port: parsed.port || 443,
-        path: parsed.pathname + parsed.search,
-        method: options.method,
-        headers: {
-          ...options.headers,
-          'User-Agent': 'HappyClaw/1.0',
-        },
-        agent,
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => {
-          const body = Buffer.concat(chunks).toString('utf-8');
-          resolve({
-            ok: res.statusCode! >= 200 && res.statusCode! < 300,
-            status: res.statusCode!,
-            text: () => Promise.resolve(body),
-            json: () => Promise.resolve(JSON.parse(body)),
-          });
-        });
-      },
-    );
-    req.on('error', reject);
-    if (options.body) req.write(options.body);
-    req.end();
-  });
-}
-
-/**
- * Initiate Codex Device Code flow.
- * Returns a user code + verification URL for the user to authenticate.
- */
-export async function initiateDeviceCodeAuth(): Promise<DeviceCodeInitResult> {
-  const { proxyUrl } = getOpenAIProviderConfig();
-  const resp = await proxiedFetch(
-    `${CODEX_AUTH_BASE}/deviceauth/usercode`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: CODEX_CLIENT_ID,
-        scope: CODEX_SCOPES,
-      }),
-    },
-    proxyUrl,
-  );
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Device code request failed (${resp.status}): ${text}`);
-  }
-
-  const data = (await resp.json()) as {
-    device_auth_id: string;
-    user_code: string;
-    interval: number;
-    expires_in: number;
-  };
+  const parsed = JSON.parse(decrypted) as Record<string, unknown>;
 
   return {
-    userCode: data.user_code,
-    verificationUrl: `${CODEX_AUTH_BASE}/codex/device`,
-    deviceAuthId: data.device_auth_id,
-    interval: data.interval || 5,
-    expiresIn: data.expires_in || 900,
+    openaiApiKey: typeof parsed.openaiApiKey === 'string' ? parsed.openaiApiKey : '',
   };
 }
 
-/**
- * Poll the device code token endpoint.
- * Returns 'pending' until the user completes auth, then 'complete'.
- * On 'complete', tokens are automatically saved.
- */
-export async function pollDeviceCodeAuth(
-  deviceAuthId: string,
-  model?: string,
-): Promise<DeviceCodePollResult> {
+// ─── Codex profile serialization ────────────────────────────────
+
+function toStoredCodexProfile(profile: CodexProviderProfile): StoredCodexProfileV1 {
+  return {
+    id: profile.id,
+    name: profile.name,
+    baseUrl: profile.baseUrl,
+    defaultModel: profile.defaultModel,
+    updatedAt: profile.updatedAt || new Date().toISOString(),
+    secrets: encryptCodexSecret({ openaiApiKey: profile.openaiApiKey }),
+    ...(Object.keys(profile.customEnv || {}).length > 0
+      ? { customEnv: profile.customEnv }
+      : {}),
+  };
+}
+
+function fromStoredCodexProfile(stored: StoredCodexProfileV1): CodexProviderProfile {
+  const secrets = decryptCodexSecret(stored.secrets);
+  return {
+    id: stored.id,
+    name: stored.name,
+    openaiApiKey: secrets.openaiApiKey,
+    baseUrl: stored.baseUrl || '',
+    defaultModel: stored.defaultModel || '',
+    updatedAt: stored.updatedAt || null,
+    customEnv: stored.customEnv || {},
+  };
+}
+
+export function toPublicCodexProfile(
+  profile: CodexProviderProfile,
+): CodexProviderProfilePublic {
+  return {
+    id: profile.id,
+    name: profile.name,
+    hasOpenaiApiKey: !!profile.openaiApiKey,
+    openaiApiKeyMasked: maskSecret(profile.openaiApiKey),
+    baseUrl: profile.baseUrl,
+    defaultModel: profile.defaultModel,
+    updatedAt: profile.updatedAt,
+    customEnv: profile.customEnv || {},
+  };
+}
+
+// ─── Codex stored state read/write ──────────────────────────────
+
+function readCodexStoredState(): CodexStoredStateResolved | null {
+  if (!fs.existsSync(CODEX_CONFIG_FILE)) return null;
   try {
-    const { proxyUrl } = getOpenAIProviderConfig();
-    const resp = await proxiedFetch(
-      `${CODEX_AUTH_BASE}/deviceauth/token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: CODEX_CLIENT_ID,
-          device_auth_id: deviceAuthId,
-        }),
-      },
-      proxyUrl,
-    );
+    const content = fs.readFileSync(CODEX_CONFIG_FILE, 'utf-8');
+    const parsed = JSON.parse(content) as Record<string, unknown>;
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      // 403 = still pending
-      if (resp.status === 403) return { status: 'pending' };
-      // 410 = expired
-      if (resp.status === 410) return { status: 'expired' };
-      return { status: 'error', error: `Token poll failed (${resp.status}): ${text}` };
-    }
-
-    const data = (await resp.json()) as {
-      authorization_code: string;
-      code_challenge: string;
-      code_verifier: string;
-    };
-
-    // Exchange authorization code for tokens
-    const tokenResp = await proxiedFetch(
-      `${CODEX_AUTH_BASE}/oauth/token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code: data.authorization_code,
-          client_id: CODEX_CLIENT_ID,
-          code_verifier: data.code_verifier,
-          redirect_uri: `http://localhost:1455/auth/callback`,
-        }).toString(),
-      },
-      proxyUrl,
-    );
-
-    if (!tokenResp.ok) {
-      const text = await tokenResp.text();
+    if (parsed.version === 1) {
+      const v1 = parsed as unknown as StoredCodexProviderConfigV1;
       return {
-        status: 'error',
-        error: `Token exchange failed (${tokenResp.status}): ${text}`,
+        mode: v1.mode === 'api_key' ? 'api_key' : 'cli',
+        activeProfileId: typeof v1.activeProfileId === 'string' ? v1.activeProfileId : '',
+        profiles: Array.isArray(v1.profiles) ? v1.profiles : [],
       };
     }
-
-    const tokens = (await tokenResp.json()) as {
-      access_token: string;
-      refresh_token: string;
-      id_token?: string;
-      expires_in?: number;
-    };
-
-    // Save tokens
-    const existing = getOpenAIProviderConfig();
-    saveOpenAIProviderConfig({
-      authMode: 'chatgpt_oauth',
-      apiKey: existing.apiKey,
-      baseUrl: existing.baseUrl,
-      model: model || existing.model,
-      oauthTokens: {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        idToken: tokens.id_token,
-        expiresAt: tokens.expires_in
-          ? Date.now() + tokens.expires_in * 1000
-          : undefined,
-      },
-    });
-
-    return { status: 'complete' };
+    return null;
   } catch (err) {
-    return {
-      status: 'error',
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
+    logger.error(
+      { err, file: CODEX_CONFIG_FILE },
+      'Failed to read Codex provider config',
+    );
+    return null;
   }
 }
 
+function writeCodexStoredState(state: CodexStoredStateResolved): void {
+  const payload: StoredCodexProviderConfigV1 = {
+    version: 1,
+    mode: state.mode,
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles,
+  };
+
+  fs.mkdirSync(CLAUDE_CONFIG_DIR, { recursive: true });
+  const tmp = `${CODEX_CONFIG_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmp, CODEX_CONFIG_FILE);
+}
+
+function ensureCodexState(): CodexStoredStateResolved {
+  return readCodexStoredState() || { mode: 'cli', activeProfileId: '', profiles: [] };
+}
+
+// ─── Codex CLI detection (read-only) ────────────────────────────
+
 /**
- * Refresh OAuth tokens using the refresh_token grant.
- * Updates stored config on success.
+ * Read and parse ~/.codex/auth.json.
+ * Returns the raw parsed JSON object, or null if missing/invalid.
  */
-export async function refreshOpenAIOAuthTokens(): Promise<boolean> {
-  const config = getOpenAIProviderConfig();
-  if (!config.oauthTokens?.refreshToken) return false;
+export function readLocalCodexAuth(): Record<string, unknown> | null {
+  const homeDir = process.env.HOME || '/root';
+  const authFile = path.join(
+    process.env.CODEX_HOME || path.join(homeDir, '.codex'),
+    'auth.json',
+  );
+  try {
+    if (!fs.existsSync(authFile)) return null;
+    const content = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
+    if (typeof content !== 'object' || content === null) return null;
+    return content as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export function detectLocalCodexCli(): LocalCodexCliStatus {
+  const homeDir = process.env.HOME || '/root';
+  const codexHome = process.env.CODEX_HOME || path.join(homeDir, '.codex');
+
+  const auth = readLocalCodexAuth();
+  if (auth && auth.tokens && typeof auth.tokens === 'object') {
+    const tokens = auth.tokens as Record<string, unknown>;
+    const accountId = typeof tokens.account_id === 'string' ? tokens.account_id : null;
+    return {
+      detected: true,
+      hasAuth: true,
+      authMode: typeof auth.auth_mode === 'string' ? auth.auth_mode : null,
+      accountId: accountId ? maskSecret(accountId) : null,
+      lastRefresh: typeof auth.last_refresh === 'string' ? auth.last_refresh : null,
+    };
+  }
+
+  // Check if directory exists at all
+  const dirExists = fs.existsSync(codexHome);
+  return {
+    detected: dirExists,
+    hasAuth: false,
+    authMode: null,
+    accountId: null,
+    lastRefresh: null,
+  };
+}
+
+/**
+ * Copy host's ~/.codex/auth.json to a session's codex-home directory.
+ * Skips if on-disk version is newer (container SDK may have refreshed).
+ */
+export function syncCodexAuthToSession(codexHomeDir: string): boolean {
+  const hostAuth = readLocalCodexAuth();
+  if (!hostAuth) return false;
+
+  const filePath = path.join(codexHomeDir, 'auth.json');
+
+  // Don't overwrite if existing file has a newer last_refresh
+  try {
+    if (fs.existsSync(filePath)) {
+      const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      const existingRefresh = existing?.last_refresh;
+      const hostRefresh = hostAuth.last_refresh;
+      if (
+        typeof existingRefresh === 'string' &&
+        typeof hostRefresh === 'string' &&
+        existingRefresh > hostRefresh
+      ) {
+        return true; // on-disk is newer, skip
+      }
+    }
+  } catch {
+    // Can't read existing — proceed with write
+  }
 
   try {
-    const resp = await proxiedFetch(
-      `${CODEX_AUTH_BASE}/oauth/token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          client_id: CODEX_CLIENT_ID,
-          refresh_token: config.oauthTokens.refreshToken,
-        }).toString(),
-      },
-      config.proxyUrl,
-    );
-
-    if (!resp.ok) {
-      logger.warn(
-        { status: resp.status },
-        'OpenAI OAuth token refresh failed',
-      );
-      return false;
-    }
-
-    const tokens = (await resp.json()) as {
-      access_token: string;
-      refresh_token: string;
-      id_token?: string;
-      expires_in?: number;
-    };
-
-    saveOpenAIProviderConfig({
-      ...config,
-      oauthTokens: {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        idToken: tokens.id_token,
-        expiresAt: tokens.expires_in
-          ? Date.now() + tokens.expires_in * 1000
-          : undefined,
-      },
+    fs.mkdirSync(codexHomeDir, { recursive: true });
+    const tmp = `${filePath}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(hostAuth, null, 2) + '\n', {
+      encoding: 'utf-8',
+      mode: 0o644,
     });
-
-    logger.info('OpenAI OAuth tokens refreshed successfully');
+    fs.renameSync(tmp, filePath);
     return true;
   } catch (err) {
-    logger.warn({ err }, 'OpenAI OAuth token refresh error');
+    logger.warn({ err, codexHomeDir }, 'Failed to sync Codex auth to session');
     return false;
   }
 }
 
-/** Disconnect OAuth (clear tokens, revert to api_key mode). */
-export function disconnectOpenAIOAuth(): void {
-  const config = getOpenAIProviderConfig();
-  saveOpenAIProviderConfig({
-    authMode: 'api_key',
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl,
-    model: config.model,
-    proxyUrl: config.proxyUrl,
-  });
+// ─── Codex mode & config getters ────────────────────────────────
+
+export function getCodexMode(): CodexProviderMode {
+  const state = readCodexStoredState();
+  return state?.mode || 'cli';
 }
 
-// ─── PKCE Browser OAuth Flow ─────────────────────────────────
-
-const CODEX_REDIRECT_URI = 'http://localhost:1455/auth/callback';
-
-/** In-memory PKCE state (short-lived, one active session at a time) */
-let pendingPkce: { codeVerifier: string; state: string; createdAt: number } | null = null;
-
-export interface PkceInitResult {
-  authorizeUrl: string;
-  state: string;
+export function setCodexMode(mode: CodexProviderMode): void {
+  const state = ensureCodexState();
+  writeCodexStoredState({ ...state, mode });
 }
 
-/**
- * Generate PKCE parameters and return the authorize URL for the user to open.
- */
-export function initiatePkceAuth(): PkceInitResult {
-  const codeVerifier = crypto.randomBytes(32).toString('base64url');
-  const codeChallenge = crypto
-    .createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
-  const state = crypto.randomBytes(16).toString('hex');
+export interface CodexProviderConfigResult {
+  mode: CodexProviderMode;
+  activeProfile: CodexProviderProfile | null;
+  hasCliAuth: boolean;
+  hasEnvApiKey: boolean;
+}
 
-  pendingPkce = { codeVerifier, state, createdAt: Date.now() };
+export function getCodexProviderConfig(): CodexProviderConfigResult {
+  const state = readCodexStoredState();
+  const mode = state?.mode || 'cli';
+  const cliStatus = detectLocalCodexCli();
+  const hasEnvApiKey = !!process.env.OPENAI_API_KEY;
 
-  const params = new URLSearchParams({
-    client_id: CODEX_CLIENT_ID,
-    redirect_uri: CODEX_REDIRECT_URI,
-    response_type: 'code',
-    scope: CODEX_SCOPES,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-    state,
-  });
+  if (mode === 'api_key' && state && state.activeProfileId) {
+    const stored = state.profiles.find((p) => p.id === state.activeProfileId);
+    return {
+      mode,
+      activeProfile: stored ? fromStoredCodexProfile(stored) : null,
+      hasCliAuth: cliStatus.hasAuth,
+      hasEnvApiKey,
+    };
+  }
 
   return {
-    authorizeUrl: `${CODEX_AUTH_BASE}/oauth/authorize?${params}`,
-    state,
+    mode,
+    activeProfile: null,
+    hasCliAuth: cliStatus.hasAuth,
+    hasEnvApiKey,
   };
 }
 
-/**
- * Complete PKCE flow: extract code from callback URL and exchange for tokens.
- */
-export async function completePkceAuth(
-  callbackUrl: string,
-  model?: string,
-): Promise<{ success: boolean; error?: string }> {
-  if (!pendingPkce) {
-    return { success: false, error: '没有待处理的 PKCE 会话，请先点击「生成登录链接」' };
+// ─── Codex profile CRUD ─────────────────────────────────────────
+
+export function listCodexProfiles(): {
+  activeProfileId: string;
+  profiles: CodexProviderProfile[];
+} {
+  const state = readCodexStoredState();
+  if (!state) return { activeProfileId: '', profiles: [] };
+  return {
+    activeProfileId: state.activeProfileId,
+    profiles: state.profiles.map((p) => fromStoredCodexProfile(p)),
+  };
+}
+
+export function createCodexProfile(input: {
+  name: string;
+  openaiApiKey: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  customEnv?: Record<string, string>;
+}): CodexProviderProfile {
+  const state = ensureCodexState();
+
+  if (state.profiles.length >= MAX_CODEX_PROFILES) {
+    throw new Error(`最多只能创建 ${MAX_CODEX_PROFILES} 个 Codex 配置`);
   }
 
-  // Expire after 15 minutes
-  if (Date.now() - pendingPkce.createdAt > 15 * 60 * 1000) {
-    pendingPkce = null;
-    return { success: false, error: 'PKCE 会话已过期，请重新生成登录链接' };
+  const now = new Date().toISOString();
+  const profile: CodexProviderProfile = {
+    id: crypto.randomBytes(8).toString('hex'),
+    name: normalizeProfileName(input.name),
+    openaiApiKey: normalizeSecret(input.openaiApiKey, 'openaiApiKey'),
+    baseUrl: normalizeBaseUrl(input.baseUrl ?? ''),
+    defaultModel: normalizeModel(input.defaultModel ?? ''),
+    updatedAt: now,
+    customEnv: sanitizeCustomEnvMap(input.customEnv || {}, {
+      skipReservedCodexKeys: true,
+    }),
+  };
+
+  const isFirst = state.profiles.length === 0;
+  writeCodexStoredState({
+    ...state,
+    activeProfileId: isFirst ? profile.id : state.activeProfileId,
+    profiles: [...state.profiles, toStoredCodexProfile(profile)],
+  });
+
+  return profile;
+}
+
+export function updateCodexProfile(
+  profileId: string,
+  patch: {
+    name?: string;
+    baseUrl?: string;
+    defaultModel?: string;
+    customEnv?: Record<string, string>;
+  },
+): CodexProviderProfile {
+  const state = readCodexStoredState();
+  if (!state) throw new Error('Codex 配置不存在');
+
+  const id = normalizeProfileId(profileId);
+  const current = state.profiles.find((p) => p.id === id);
+  if (!current) throw new Error('未找到指定 Codex 配置');
+
+  const decoded = fromStoredCodexProfile(current);
+  const next: CodexProviderProfile = {
+    ...decoded,
+    name: patch.name !== undefined ? normalizeProfileName(patch.name) : decoded.name,
+    baseUrl: patch.baseUrl !== undefined ? normalizeBaseUrl(patch.baseUrl) : decoded.baseUrl,
+    defaultModel: patch.defaultModel !== undefined ? normalizeModel(patch.defaultModel) : decoded.defaultModel,
+    customEnv: patch.customEnv !== undefined
+      ? sanitizeCustomEnvMap(patch.customEnv, { skipReservedCodexKeys: true })
+      : decoded.customEnv,
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeCodexStoredState({
+    ...state,
+    profiles: state.profiles.map((p) =>
+      p.id === id ? toStoredCodexProfile(next) : p,
+    ),
+  });
+
+  return next;
+}
+
+export function updateCodexProfileSecret(
+  profileId: string,
+  patch: {
+    openaiApiKey?: string;
+    clearOpenaiApiKey?: boolean;
+  },
+): CodexProviderProfile {
+  const state = readCodexStoredState();
+  if (!state) throw new Error('Codex 配置不存在');
+
+  const id = normalizeProfileId(profileId);
+  const current = state.profiles.find((p) => p.id === id);
+  if (!current) throw new Error('未找到指定 Codex 配置');
+
+  const decoded = fromStoredCodexProfile(current);
+  const nextKey =
+    typeof patch.openaiApiKey === 'string'
+      ? normalizeSecret(patch.openaiApiKey, 'openaiApiKey')
+      : patch.clearOpenaiApiKey
+        ? ''
+        : decoded.openaiApiKey;
+
+  const next: CodexProviderProfile = {
+    ...decoded,
+    openaiApiKey: nextKey,
+    updatedAt: new Date().toISOString(),
+  };
+
+  writeCodexStoredState({
+    ...state,
+    profiles: state.profiles.map((p) =>
+      p.id === id ? toStoredCodexProfile(next) : p,
+    ),
+  });
+
+  return next;
+}
+
+export function activateCodexProfile(profileId: string): CodexProviderProfile {
+  const state = readCodexStoredState();
+  if (!state) throw new Error('Codex 配置不存在');
+
+  const id = normalizeProfileId(profileId);
+  const target = state.profiles.find((p) => p.id === id);
+  if (!target) throw new Error('未找到指定 Codex 配置');
+
+  writeCodexStoredState({ ...state, activeProfileId: id });
+  return fromStoredCodexProfile(target);
+}
+
+export function deleteCodexProfile(profileId: string): {
+  activeProfileId: string;
+  deletedProfileId: string;
+} {
+  const state = readCodexStoredState();
+  if (!state) throw new Error('Codex 配置不存在');
+
+  const id = normalizeProfileId(profileId);
+  if (!state.profiles.some((p) => p.id === id)) {
+    throw new Error('未找到指定 Codex 配置');
+  }
+  if (state.profiles.length <= 1) {
+    throw new Error('至少需要保留一个 Codex 配置');
   }
 
-  try {
-    // Parse callback URL to extract code and state
-    // Handle both full URLs and just query strings
-    let url: URL;
-    try {
-      url = new URL(callbackUrl);
-    } catch {
-      // Maybe user pasted just the query params
-      url = new URL(`http://localhost${callbackUrl.startsWith('/') ? '' : '/'}${callbackUrl}`);
-    }
+  const profiles = state.profiles.filter((p) => p.id !== id);
+  const activeProfileId =
+    state.activeProfileId === id ? profiles[0].id : state.activeProfileId;
 
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
+  writeCodexStoredState({ ...state, activeProfileId, profiles });
 
-    if (!code) {
-      return { success: false, error: '回调 URL 中没有找到 code 参数' };
-    }
+  return { activeProfileId, deletedProfileId: id };
+}
 
-    if (!state || state !== pendingPkce.state) {
-      return { success: false, error: 'state 参数缺失或不匹配，可能是 CSRF 攻击或过期的链接' };
-    }
-
-    const { codeVerifier } = pendingPkce;
-    const { proxyUrl } = getOpenAIProviderConfig();
-
-    // Exchange code for tokens
-    const tokenResp = await proxiedFetch(
-      `${CODEX_AUTH_BASE}/oauth/token`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code,
-          client_id: CODEX_CLIENT_ID,
-          code_verifier: codeVerifier,
-          redirect_uri: CODEX_REDIRECT_URI,
-        }).toString(),
-      },
-      proxyUrl,
-    );
-
-    if (!tokenResp.ok) {
-      const text = await tokenResp.text();
-      return { success: false, error: `Token 交换失败 (${tokenResp.status}): ${text}` };
-    }
-
-    const tokens = (await tokenResp.json()) as {
-      access_token: string;
-      refresh_token: string;
-      id_token?: string;
-      expires_in?: number;
-    };
-
-    // Save tokens
-    const existing = getOpenAIProviderConfig();
-    saveOpenAIProviderConfig({
-      authMode: 'chatgpt_oauth',
-      apiKey: existing.apiKey,
-      baseUrl: existing.baseUrl,
-      model: model || existing.model,
-      proxyUrl: existing.proxyUrl,
-      oauthTokens: {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        idToken: tokens.id_token,
-        expiresAt: tokens.expires_in
-          ? Date.now() + tokens.expires_in * 1000
-          : undefined,
-      },
-    });
-
-    pendingPkce = null;
-    logger.info('OpenAI PKCE OAuth completed successfully');
-    return { success: true };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
-  }
+export function appendCodexConfigAudit(
+  actor: string,
+  action: string,
+  changedFields: string[],
+  metadata?: Record<string, unknown>,
+): void {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    actor,
+    action,
+    changedFields,
+    metadata,
+  };
+  fs.mkdirSync(CLAUDE_CONFIG_DIR, { recursive: true });
+  fs.appendFileSync(
+    CODEX_CONFIG_AUDIT_FILE,
+    `${JSON.stringify(entry)}\n`,
+    'utf-8',
+  );
 }

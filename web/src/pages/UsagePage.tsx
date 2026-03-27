@@ -5,7 +5,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useUsageStore } from '../stores/usage';
-import type { SubscriptionWindow, OpenAIRateWindow } from '../stores/usage';
+import type { SubscriptionWindow } from '../stores/usage';
 import { useAuthStore } from '../stores/auth';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonStatCards } from '@/components/common/Skeletons';
@@ -116,9 +116,6 @@ function SubscriptionUsageCard() {
     loadSubscription();
   }, [loadSubscription]);
 
-  // All hooks must be called before any conditional return (Rules of Hooks)
-  const handleRefresh = useCallback(() => loadSubscription(), [loadSubscription]);
-
   // Hide entirely if user is not on OAuth (no credentials = not using Anthropic subscription)
   if (subscriptionErrorCode === 'no_credentials') {
     return null;
@@ -126,6 +123,7 @@ function SubscriptionUsageCard() {
 
   // If API works, show data with refresh; otherwise show link to claude.ai
   const apiUnavailable = subscriptionError && !subscription;
+  const handleRefresh = useCallback(() => loadSubscription(), [loadSubscription]);
 
   return (
     <div className="bg-card rounded-xl border border-border p-4 lg:p-6">
@@ -202,171 +200,13 @@ function SubscriptionUsageCard() {
   );
 }
 
-// --- OpenAI Subscription Usage Card ---
-
-function formatPlanType(plan: string): string {
-  const map: Record<string, string> = {
-    guest: 'Guest',
-    free: 'Free',
-    go: 'ChatGPT Go',
-    plus: 'Plus',
-    pro: 'Pro',
-    free_workspace: 'Free Workspace',
-    team: 'Team',
-    business: 'Business',
-    education: 'Education',
-    quorum: 'Quorum',
-    k12: 'K12',
-    enterprise: 'Enterprise',
-    edu: 'Edu',
-    // Legacy plan_type values from accounts check
-    chatgptplusplan: 'Plus',
-    chatgptproplan: 'Pro',
-    chatgptteamplan: 'Team',
-    chatgptenterpriseplan: 'Enterprise',
-  };
-  return map[plan?.toLowerCase()] || plan || 'Unknown';
-}
-
-function OpenAIRateWindowRow({ w }: { w: OpenAIRateWindow }) {
-  const [resetText, setResetText] = useState(() => w.resets_at ? formatResetTime(w.resets_at) : '');
-  useEffect(() => {
-    if (!w.resets_at) return;
-    setResetText(formatResetTime(w.resets_at));
-    const timer = setInterval(() => setResetText(formatResetTime(w.resets_at!)), 60_000);
-    return () => clearInterval(timer);
-  }, [w.resets_at]);
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-foreground">{w.label}</span>
-        <span className="text-muted-foreground">
-          {w.used_percent.toFixed(0)}% 已用
-          {resetText && (
-            <>
-              <span className="mx-1.5 text-border">·</span>
-              <Clock className="inline w-3.5 h-3.5 -mt-0.5 mr-0.5" />
-              {resetText}
-            </>
-          )}
-        </span>
-      </div>
-      <SubscriptionProgressBar utilization={w.used_percent} />
-    </div>
-  );
-}
-
-function OpenAISubscriptionUsageCard() {
-  const { openaiAccount, openaiAccountLoading, openaiAccountError, openaiAccountErrorCode, loadOpenAIAccount } =
-    useUsageStore();
-
-  useEffect(() => {
-    loadOpenAIAccount();
-  }, [loadOpenAIAccount]);
-
-  // All hooks must be called before any conditional return (Rules of Hooks)
-  const handleRefresh = useCallback(() => loadOpenAIAccount(), [loadOpenAIAccount]);
-
-  // Hide if no OpenAI OAuth configured
-  if (openaiAccountErrorCode === 'no_credentials') {
-    return null;
-  }
-
-  const apiUnavailable = openaiAccountError && !openaiAccount;
-
-  return (
-    <div className="bg-card rounded-xl border border-border p-4 lg:p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
-            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">O</span>
-          </div>
-          <h2 className="text-base font-semibold text-foreground">OpenAI</h2>
-          {openaiAccount?.plan_type && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-medium">
-              {formatPlanType(openaiAccount.plan_type)}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <a
-            href="https://chatgpt.com/settings"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
-          >
-            chatgpt.com
-            <ExternalLink className="w-3 h-3" />
-          </a>
-          {!apiUnavailable && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={openaiAccountLoading}
-            >
-              <RefreshCw className={`w-4 h-4 ${openaiAccountLoading ? 'animate-spin' : ''}`} />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {openaiAccountLoading && !openaiAccount && (
-        <div className="space-y-4">
-          {[1, 2].map((i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="h-4 bg-muted rounded w-1/3 animate-pulse" />
-              <div className="h-2.5 bg-muted rounded-full animate-pulse" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {openaiAccount && (
-        <div className="space-y-4">
-          {openaiAccount.rate_windows && openaiAccount.rate_windows.length > 0 ? (
-            openaiAccount.rate_windows.map((w, i) => (
-              <OpenAIRateWindowRow key={`${w.label}-${i}`} w={w} />
-            ))
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              账户已连接（{formatPlanType(openaiAccount.plan_type || '')}），暂无速率限制数据。
-            </p>
-          )}
-          {openaiAccount.credits && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
-              <DollarSign className="w-4 h-4 shrink-0" />
-              {openaiAccount.credits.unlimited
-                ? <span>Credits: 无限</span>
-                : openaiAccount.credits.balance != null
-                  ? <span>Credits 余额: ${openaiAccount.credits.balance.toFixed(2)}</span>
-                  : <span>Credits: {openaiAccount.credits.has_credits ? '可用' : '无'}</span>
-              }
-            </div>
-          )}
-        </div>
-      )}
-
-      {apiUnavailable && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground px-3 py-2 rounded-md bg-muted">
-          <Info className="w-4 h-4 shrink-0" />
-          <span>{openaiAccountError}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
- * Responsive subscription quota section.
- * Shows Anthropic and/or OpenAI quota cards side-by-side on larger screens.
+ * Subscription quota section showing Anthropic usage.
  */
 function SubscriptionQuotaSection() {
   return (
-    <div className="flex flex-col lg:flex-row gap-4 mb-6 [&>*]:flex-1 [&>*]:min-w-0">
+    <div className="mb-6">
       <SubscriptionUsageCard />
-      <OpenAISubscriptionUsageCard />
     </div>
   );
 }

@@ -8,44 +8,9 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import {
-  ContextManager,
-  MessagingPlugin,
-  TasksPlugin,
-  GroupsPlugin,
-  MemoryPlugin,
-  FeishuDocsPlugin,
-  CrossModelPlugin,
-  DelegatePlugin,
-  type PluginContext,
-} from 'happyclaw-agent-runner-core';
+import type { ContextManager } from 'happyclaw-agent-runner-core';
 
-// ─── Context Manager Factory ─────────────────────────────────
-
-export function createContextManager(ctx: PluginContext): ContextManager {
-  const API_URL = process.env.HAPPYCLAW_API_URL || 'http://localhost:3000';
-  const API_TOKEN = process.env.HAPPYCLAW_INTERNAL_TOKEN || '';
-
-  return new ContextManager(ctx)
-    .register(new MessagingPlugin())
-    .register(new TasksPlugin())
-    .register(new GroupsPlugin())
-    .register(new MemoryPlugin({
-      apiUrl: API_URL,
-      apiToken: API_TOKEN,
-      queryTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_QUERY_TIMEOUT || '60000', 10),
-      sendTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_SEND_TIMEOUT || '120000', 10),
-    }))
-    .register(new FeishuDocsPlugin({
-      apiUrl: API_URL,
-      apiToken: API_TOKEN,
-    }))
-    .register(new CrossModelPlugin({
-      apiUrl: API_URL,
-      apiToken: API_TOKEN,
-    }))
-    .register(new DelegatePlugin());
-}
+export { createContextManager } from '../../context-manager-factory.js';
 
 // ─── SDK Tool Conversion ─────────────────────────────────────
 

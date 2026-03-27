@@ -7,7 +7,7 @@
 
 dev: ## 启动前后端（首次自动安装依赖和构建容器镜像）
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
-	@if command -v docker >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
 	@npm --prefix container/agent-runner run build --silent 2>/dev/null || npm --prefix container/agent-runner run build
 	@npm --prefix container/memory-agent run build --silent 2>/dev/null || npm --prefix container/memory-agent run build
 	npm run dev:all
@@ -24,7 +24,6 @@ build: sync-types ## 编译前后端及 agent-runner
 	npm run build:all
 	npm --prefix container/agent-runner-core run build
 	npm --prefix container/agent-runner run build
-	npm --prefix container/agent-runner-openai run build
 	npm --prefix container/memory-agent run build
 
 build-backend: ## 仅编译后端
@@ -40,7 +39,7 @@ build-memory-agent: ## 仅编译 memory-agent
 
 start: ## 一键启动生产环境（首次自动安装依赖和构建容器镜像）
 	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
-	@if command -v docker >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
 	$(MAKE) build
 	npm run start
 
@@ -89,19 +88,16 @@ install: ## 安装全部依赖并编译 agent-runner
 	npm --prefix container/agent-runner-core run build
 	npm --prefix container/agent-runner install
 	npm --prefix container/agent-runner run build
-	npm --prefix container/agent-runner-openai install
-	npm --prefix container/agent-runner-openai run build
 	npm --prefix container/memory-agent install
 	npm --prefix container/memory-agent run build
 	cd web && npm install
-	@touch node_modules web/node_modules container/agent-runner-core/node_modules container/agent-runner/node_modules container/agent-runner-openai/node_modules container/memory-agent/node_modules
+	@touch node_modules web/node_modules container/agent-runner-core/node_modules container/agent-runner/node_modules container/memory-agent/node_modules
 
 clean: ## 清理构建产物
 	rm -rf dist
 	rm -rf web/dist
 	rm -rf container/agent-runner-core/dist
 	rm -rf container/agent-runner/dist
-	rm -rf container/agent-runner-openai/dist
 	rm -rf container/memory-agent/dist
 
 reset-init: ## 完全重置为首装状态（清空所有运行时数据）

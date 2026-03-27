@@ -17,6 +17,13 @@ export interface PluginContext {
   workspaceGlobal: string;
   workspaceMemory: string;
   userId?: string;
+  /** Directories containing skills (SKILL.md files). */
+  skillsDirs?: string[];
+
+  // 动态上下文（每轮 query 前可更新）
+  recentImChannels?: Set<string>;
+  contextSummary?: string;
+  providerInfo?: string; // 如 "Claude Opus 4.6" / "Codex o3-pro"
 }
 
 // ─── Tool Types ─────────────────────────────────────────────

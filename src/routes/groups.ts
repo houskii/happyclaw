@@ -185,6 +185,7 @@ interface GroupPayloadItem {
   activation_mode?: 'auto' | 'always' | 'when_mentioned' | 'disabled';
   llm_provider?: 'claude' | 'openai';
   model?: string;
+  thinking_effort?: 'low' | 'medium' | 'high' | null;
   context_compression?: 'off' | 'auto' | 'manual';
   knowledge_extraction?: boolean;
 }
@@ -298,6 +299,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       activation_mode: group.activation_mode ?? 'auto',
       llm_provider: group.llm_provider ?? 'claude',
       model: group.model ?? undefined,
+      thinking_effort: group.thinking_effort ?? null,
       context_compression: group.context_compression ?? 'off',
       knowledge_extraction: group.knowledge_extraction ?? false,
     };
@@ -731,6 +733,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     activation_mode,
     llm_provider,
     model,
+    thinking_effort,
     context_compression,
     knowledge_extraction,
   } = validation.data;
@@ -744,6 +747,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     activation_mode === undefined &&
     llm_provider === undefined &&
     model === undefined &&
+    thinking_effort === undefined &&
     context_compression === undefined &&
     knowledge_extraction === undefined
   ) {
@@ -758,6 +762,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     activation_mode === undefined &&
     llm_provider === undefined &&
     model === undefined &&
+    thinking_effort === undefined &&
     context_compression === undefined &&
     knowledge_extraction === undefined;
   if (isPinOnly) {
@@ -801,8 +806,8 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     unpinGroup(authUser.id, jid);
   }
 
-  // Update registered group if name, skills, activation_mode, llm_provider, or model changed
-  if (name || selected_skills !== undefined || activation_mode !== undefined || llm_provider !== undefined || model !== undefined || context_compression !== undefined || knowledge_extraction !== undefined) {
+  // Update registered group if name, skills, activation_mode, llm_provider, model, or thinking_effort changed
+  if (name || selected_skills !== undefined || activation_mode !== undefined || llm_provider !== undefined || model !== undefined || thinking_effort !== undefined || context_compression !== undefined || knowledge_extraction !== undefined) {
     const updated: RegisteredGroup = {
       name: name || existing.name,
       folder: existing.folder,
@@ -834,6 +839,10 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         model !== undefined
           ? (model || undefined)
           : existing.model,
+      thinking_effort:
+        thinking_effort !== undefined
+          ? (thinking_effort || undefined)
+          : existing.thinking_effort,
       context_compression:
         context_compression !== undefined
           ? context_compression

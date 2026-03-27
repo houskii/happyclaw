@@ -548,6 +548,7 @@ export function initDatabase(): void {
   ensureColumn('registered_groups', 'activation_mode', "TEXT DEFAULT 'auto'");
   ensureColumn('registered_groups', 'llm_provider', "TEXT DEFAULT 'claude'");
   ensureColumn('registered_groups', 'model', 'TEXT');
+  ensureColumn('registered_groups', 'thinking_effort', 'TEXT');
   ensureColumn('registered_groups', 'context_compression', "TEXT DEFAULT 'off'");
   ensureColumn('registered_groups', 'knowledge_extraction', 'INTEGER DEFAULT 0');
   ensureColumn('scheduled_tasks', 'model', 'TEXT');
@@ -2293,6 +2294,7 @@ type RegisteredGroupRow = {
   selected_mcps: string | null;
   llm_provider: string | null;
   model: string | null;
+  thinking_effort: string | null;
   context_compression: string | null;
   knowledge_extraction: number | null;
 };
@@ -2327,9 +2329,17 @@ function parseGroupRow(
     selected_mcps: row.selected_mcps ? JSON.parse(row.selected_mcps) : null,
     llm_provider: row.llm_provider === 'openai' ? 'openai' : 'claude',
     model: row.model ?? undefined,
+    thinking_effort: parseThinkingEffort(row.thinking_effort),
     context_compression: parseCompressionMode(row.context_compression),
     knowledge_extraction: row.knowledge_extraction === 1,
   };
+}
+
+function parseThinkingEffort(
+  val: string | null,
+): 'low' | 'medium' | 'high' | undefined {
+  if (val === 'low' || val === 'medium' || val === 'high') return val;
+  return undefined;
 }
 
 function parseCompressionMode(
@@ -2367,8 +2377,8 @@ export function getRegisteredGroup(
 
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps, llm_provider, model, context_compression, knowledge_extraction)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps, llm_provider, model, thinking_effort, context_compression, knowledge_extraction)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -2391,6 +2401,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     group.selected_mcps ? JSON.stringify(group.selected_mcps) : null,
     group.llm_provider ?? 'claude',
     group.model ?? null,
+    group.thinking_effort ?? null,
     group.context_compression ?? 'off',
     group.knowledge_extraction ? 1 : 0,
   );

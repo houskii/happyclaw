@@ -201,6 +201,7 @@ export const GroupPatchSchema = z.object({
     .optional(),
   llm_provider: z.enum(['claude', 'openai']).optional(),
   model: z.string().max(128).nullable().optional(),
+  thinking_effort: z.enum(['low', 'medium', 'high']).nullable().optional(),
   context_compression: z.enum(['off', 'auto', 'manual']).optional(),
   knowledge_extraction: z.boolean().optional(),
 });
@@ -251,9 +252,7 @@ export const SystemSettingsSchema = z.object({
   feishuApiDomain: z.string().min(1).max(100).optional(),
   feishuDocDomain: z.string().min(1).max(100).optional(),
   webPublicUrl: z.string().max(200).optional(),
-  autoSwitchToOpenAIOnRateLimit: z.boolean().optional(),
   defaultClaudeModel: z.string().max(100).optional(),
-  defaultOpenAIModel: z.string().max(100).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({
@@ -392,7 +391,6 @@ export const FeishuConfigSchema = z
     replyThreadingMode: z.enum(['auto', 'agent']).optional(),
     streamingCard: z.boolean().optional(),
     imCommentary: z.boolean().optional(),
-    imCommentaryUseGpt: z.boolean().optional(),
   })
   .refine(
     (data) =>
@@ -402,8 +400,7 @@ export const FeishuConfigSchema = z
       typeof data.enabled === 'boolean' ||
       typeof data.replyThreadingMode === 'string' ||
       typeof data.streamingCard === 'boolean' ||
-      typeof data.imCommentary === 'boolean' ||
-      typeof data.imCommentaryUseGpt === 'boolean',
+      typeof data.imCommentary === 'boolean',
     { message: 'At least one config field must be provided' },
   );
 
@@ -621,4 +618,40 @@ export const UserIMPreferencesSchema = z.object({
 export const WeChatConfigSchema = z.object({
   enabled: z.boolean().optional(),
   clearBotToken: z.boolean().optional(),
+});
+
+// ─── Codex Provider ─────────────────────────────────────────────
+
+export const CodexModeSchema = z.object({
+  mode: z.enum(['cli', 'api_key']),
+});
+
+export const CodexProfileCreateSchema = z.object({
+  name: z.string().min(1).max(64),
+  openaiApiKey: z.string().min(1).max(2000),
+  baseUrl: z.string().max(2000).optional(),
+  defaultModel: z.string().max(128).optional(),
+  customEnv: z
+    .record(z.string().max(256), z.string().max(4096))
+    .optional()
+    .refine((env) => !env || Object.keys(env).length <= 50, {
+      message: 'customEnv must have at most 50 entries',
+    }),
+});
+
+export const CodexProfilePatchSchema = z.object({
+  name: z.string().min(1).max(64).optional(),
+  baseUrl: z.string().max(2000).optional(),
+  defaultModel: z.string().max(128).optional(),
+  customEnv: z
+    .record(z.string().max(256), z.string().max(4096))
+    .optional()
+    .refine((env) => !env || Object.keys(env).length <= 50, {
+      message: 'customEnv must have at most 50 entries',
+    }),
+});
+
+export const CodexProfileSecretsSchema = z.object({
+  openaiApiKey: z.string().max(2000).optional(),
+  clearOpenaiApiKey: z.boolean().optional(),
 });

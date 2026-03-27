@@ -98,35 +98,103 @@ export class MemoryPlugin implements ContextPlugin {
   }
 
   getSystemPromptSection(ctx: PluginContext): string {
-    const parts: string[] = [];
-    parts.push('## 记忆系统', '');
-    parts.push('你拥有记忆能力，可通过 memory_query 查询过去的对话和知识，通过 memory_remember 记住重要信息。');
-    parts.push('');
+    if (ctx.isHome || ctx.isAdminHome) {
+      return this.buildHomeMemoryPrompt(ctx);
+    }
+    return this.buildGroupMemoryPrompt();
+  }
 
-    // Load memory index if available
-    const indexPath = this.opts.memoryIndexPath
-      || path.join(ctx.workspaceMemory, 'index.md');
-    try {
-      if (fs.existsSync(indexPath)) {
-        const indexContent = fs.readFileSync(indexPath, 'utf-8').trim();
-        if (indexContent) {
-          parts.push('### 记忆索引（随身携带）', '', indexContent, '');
-        }
-      }
-    } catch { /* ignore */ }
+  /**
+   * Full memory prompt for home containers (~70 lines).
+   * Includes index.md, personality.md, memory_query usage examples,
+   * memory_remember guidance, and compaction notes.
+   */
+  private buildHomeMemoryPrompt(ctx: PluginContext): string {
+    // Memory Agent mode: read index.md from the memory-index mount
+    const WORKSPACE_MEMORY_INDEX = process.env.HAPPYCLAW_WORKSPACE_MEMORY_INDEX || '/workspace/memory-index';
+    const parts: string[] = ['', '## 记忆系统', ''];
 
-    // Load personality if available
-    const personalityPath = path.join(ctx.workspaceMemory, 'personality.md');
-    try {
-      if (fs.existsSync(personalityPath)) {
-        const personality = fs.readFileSync(personalityPath, 'utf-8').trim();
-        if (personality) {
-          parts.push('### 用户交互模式', '', personality, '');
-        }
-      }
-    } catch { /* ignore */ }
+    // Load memory index
+    const indexContent = tryReadFileContent(path.join(WORKSPACE_MEMORY_INDEX, 'index.md'));
+    if (indexContent) {
+      parts.push(
+        '你的随身索引已加载（这是经过压缩的快速参考，条目可能不完整。涉及具体事实时，建议通过 memory_query 确认）：',
+        '',
+        '<memory-index>',
+        indexContent,
+        '</memory-index>',
+        '',
+      );
+    }
 
+    // Load personality
+    const personalityContent = tryReadFileContent(path.join(WORKSPACE_MEMORY_INDEX, 'personality.md'));
+    if (personalityContent) {
+      parts.push(
+        '你对这位用户交互风格的观察记录：',
+        '',
+        '<personality-notes>',
+        personalityContent,
+        '</personality-notes>',
+        '',
+      );
+    }
+
+    parts.push(
+      '### memory_query 和 memory_remember',
+      '',
+      '这两个 MCP 工具的底层是一个独立的记忆 Agent，它可以搜索、整理和存储你的长期记忆。',
+      '',
+      '**memory_query — 深度回忆**',
+      '',
+      '你可以像问一个知道一切过往的助手那样，直接问它问题。不需要把问题过度拆解，但要给足背景。例如：',
+      '- 「今天是 2026-03-16 周一，根据记忆用户今天可能有什么安排？」',
+      '- 「用户提到过一个关于 XXX 的项目，具体细节是什么？」',
+      '- 「上周用户和我聊过一个技术方案，涉及向量数据库，帮我回忆一下。」',
+      '',
+      '**什么时候应该使用 memory_query：**',
+      '- 当你不确定自己知不知道某件事时——先查再答，不要猜',
+      '- 用户问起过去的事（"之前聊的"、"上次说的"、"还记得吗"）',
+      '- 涉及用户个人信息、日程、偏好等需要确认准确性的问题',
+      '- 用户在考你/测试你的记忆时',
+      '- compact summary 或随身索引中的信息不够详细，需要深入了解时',
+      '',
+      '随身索引是快速参考，但**不是权威事实来源**。索引条目经过压缩，可能丢失限定条件或上下文。',
+      '如果索引中已有一些信息，你可以先给出快速印象，',
+      '然后询问用户要不要让你深入想想（调用 memory_query 获取完整细节）。',
+      '涉及具体事实（日期、数字、决策结论）时，优先通过 memory_query 确认后再回答。',
+      '',
+      '**重要：查询通常需要 1-2 分钟。** 发起查询前，先给用户发一条消息（如「让我好好想想……」「我去翻翻记忆～」），',
+      '避免用户以为你卡死了。如果是 IM 渠道，用 send_message 发送提示后再调用 memory_query。',
+      '',
+      '**memory_remember — 主动记忆**',
+      '',
+      '每次对话结束后，系统会自动整理对话内容存入记忆，所以不需要频繁手动记录。',
+      '只在以下情况使用：',
+      '- 用户明确说「记住」「别忘了」',
+      '- 特别重要、怕被自动整理遗漏的信息（如用户纠正了个人信息、重要决策）',
+      '',
+      '不要在 CLAUDE.md 里手动维护用户信息——用户身份、偏好、知识由记忆系统统一管理，已通过上方随身索引加载。',
+    );
     return parts.join('\n');
+  }
+
+  /**
+   * Read-only memory prompt for non-home group containers (~15 lines).
+   */
+  private buildGroupMemoryPrompt(): string {
+    return [
+      '',
+      '## 记忆',
+      '',
+      '### 查询记忆',
+      '可使用 `memory_query` 工具查询用户的记忆（过去的对话、偏好、项目知识等）。',
+      '查询可能需要几秒钟。',
+      '',
+      '### 本地记忆',
+      '重要信息直接记录在当前工作区的 CLAUDE.md 或其他文件中。',
+      'Claude 会自动维护你的会话记忆，无需额外操作。',
+    ].join('\n');
   }
 
   // ─── Private helpers ────────────────────────────────────────
@@ -171,4 +239,17 @@ export class MemoryPlugin implements ContextPlugin {
       return { ok: false, status: 0, errorMsg };
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function tryReadFileContent(filePath: string): string {
+  try {
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, 'utf-8').trim();
+    }
+  } catch { /* ignore read errors */ }
+  return '';
 }

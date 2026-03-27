@@ -10,13 +10,6 @@ import {
 } from '@/components/ui/select';
 import { api, type ApiError } from '@/api/client';
 
-const MODEL_OPTIONS = [
-  { value: '__default__', label: '默认（跟随全局配置）' },
-  { value: 'opus', label: 'Opus（最强）' },
-  { value: 'sonnet', label: 'Sonnet（均衡）' },
-  { value: 'haiku', label: 'Haiku（快速/低成本）' },
-];
-
 const COMPRESSION_OPTIONS = [
   { value: 'off', label: '关闭' },
   { value: 'manual', label: '手动压缩' },
@@ -38,7 +31,6 @@ interface GroupDetailProps {
 
 export function GroupDetail({ group }: GroupDetailProps) {
   const { updateGroup } = useGroupsStore();
-  const [model, setModel] = useState(group.model || '__default__');
   const [compression, setCompression] = useState<string>(group.context_compression || 'off');
   const [knowledgeExtraction, setKnowledgeExtraction] = useState(group.knowledge_extraction ?? false);
   const [saving, setSaving] = useState(false);
@@ -47,19 +39,17 @@ export function GroupDetail({ group }: GroupDetailProps) {
   const [compressResult, setCompressResult] = useState<string | null>(null);
   const [summaryInfo, setSummaryInfo] = useState<ContextSummary | null>(null);
 
-  // Sync local state when group prop changes (e.g. switching workspaces)
+  // Sync local state when group prop changes
   useEffect(() => {
-    setModel(group.model || '__default__');
     setCompression(group.context_compression || 'off');
     setKnowledgeExtraction(group.knowledge_extraction ?? false);
     setCompressResult(null);
     setSummaryInfo(null);
-  }, [group.jid, group.model, group.context_compression, group.knowledge_extraction]);
+  }, [group.jid, group.context_compression, group.knowledge_extraction]);
 
-  const modelDirty = model !== (group.model || '__default__');
   const compressionDirty = compression !== (group.context_compression || 'off');
   const knowledgeDirty = knowledgeExtraction !== (group.knowledge_extraction ?? false);
-  const dirty = modelDirty || compressionDirty || knowledgeDirty;
+  const dirty = compressionDirty || knowledgeDirty;
 
   const formatDate = (timestamp: string | number) => {
     return new Date(timestamp).toLocaleString('zh-CN', {
@@ -92,12 +82,8 @@ export function GroupDetail({ group }: GroupDetailProps) {
     setSaving(true);
     try {
       const updates: Record<string, unknown> = {};
-      if (modelDirty) {
-        updates.model = model === '__default__' ? null : model;
-      }
       if (compressionDirty) {
         updates.context_compression = compression;
-        // Clear knowledge extraction when compression is turned off
         if (compression === 'off' && knowledgeExtraction) {
           setKnowledgeExtraction(false);
           updates.knowledge_extraction = false;
@@ -131,7 +117,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
       }>(
         `/api/groups/${encodeURIComponent(group.jid)}/compress`,
         undefined,
-        60000, // Compression can take 10-30s, use 60s timeout
+        60000,
       );
       if (res.success) {
         const knowledgeMsg =
@@ -150,6 +136,8 @@ export function GroupDetail({ group }: GroupDetailProps) {
       setCompressing(false);
     }
   };
+
+  const providerLabel = group.llm_provider === 'openai' ? 'OpenAI (Codex)' : 'Claude (Anthropic)';
 
   return (
     <div className="p-4 bg-background space-y-3">
@@ -175,29 +163,14 @@ export function GroupDetail({ group }: GroupDetailProps) {
         </div>
       </div>
 
-      {/* Model Override */}
-      {group.editable && (
-        <div>
-          <div className="text-xs text-slate-500 mb-1">模型</div>
-          <div className="flex items-center gap-2">
-            <Select value={model} onValueChange={setModel}>
-              <SelectTrigger className="flex-1 h-8 text-sm">
-                <SelectValue placeholder="默认" />
-              </SelectTrigger>
-              <SelectContent>
-                {MODEL_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <p className="mt-1 text-xs text-slate-400">
-            覆盖此工作区使用的模型，留空则跟随全局配置
-          </p>
+      {/* Provider & Model (read-only display, edit in ContainerEnvPanel) */}
+      <div>
+        <div className="text-xs text-slate-500 mb-1">Provider / 模型</div>
+        <div className="text-sm text-foreground">
+          {providerLabel}
+          {group.model && <span className="text-slate-400"> / {group.model}</span>}
         </div>
-      )}
+      </div>
 
       {/* Context Compression */}
       {group.editable && (
@@ -270,7 +243,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
         </div>
       )}
 
-      {/* Save button (shared for model + compression) */}
+      {/* Save button */}
       {group.editable && dirty && (
         <div className="flex items-center gap-2">
           <button

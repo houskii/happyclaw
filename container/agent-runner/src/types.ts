@@ -47,18 +47,6 @@ export interface SessionsIndex {
   entries: SessionEntry[];
 }
 
-export interface SDKUserMessage {
-  type: 'user';
-  message: {
-    role: 'user';
-    content:
-      | string
-      | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
-  };
-  parent_tool_use_id: null;
-  session_id: string;
-}
-
 export interface ParsedMessage {
   role: 'user' | 'assistant';
   content: string;
