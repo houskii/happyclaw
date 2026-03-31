@@ -171,7 +171,13 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
   const [billingCurrency, setBillingCurrency] = useState('USD');
   const [billingCurrencyRate, setBillingCurrencyRate] = useState(1);
   const [webPublicUrl, setWebPublicUrl] = useState('');
+  const [defaultLlmProvider, setDefaultLlmProvider] = useState<'claude' | 'openai'>('claude');
   const [defaultClaudeModel, setDefaultClaudeModel] = useState('');
+  const [defaultCodexModel, setDefaultCodexModel] = useState('');
+  const [claudeUsageApiUrl, setClaudeUsageApiUrl] = useState('');
+  const [codexUsageApiUrl, setCodexUsageApiUrl] = useState('');
+  const [claudeSdkBaseUrl, setClaudeSdkBaseUrl] = useState('');
+  const [codexSdkBaseUrl, setCodexSdkBaseUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -197,7 +203,13 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
         setBillingCurrency(data.billingCurrency ?? 'USD');
         setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
         setWebPublicUrl(data.webPublicUrl ?? '');
+        setDefaultLlmProvider(data.defaultLlmProvider ?? 'claude');
         setDefaultClaudeModel(data.defaultClaudeModel ?? '');
+        setDefaultCodexModel(data.defaultCodexModel ?? '');
+        setClaudeUsageApiUrl(data.claudeUsageApiUrl ?? '');
+        setCodexUsageApiUrl(data.codexUsageApiUrl ?? '');
+        setClaudeSdkBaseUrl(data.claudeSdkBaseUrl ?? '');
+        setCodexSdkBaseUrl(data.codexSdkBaseUrl ?? '');
       } catch (err) {
         setError(getErrorMessage(err, '加载系统参数失败'));
       } finally {
@@ -245,7 +257,13 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
         billingCurrency,
         billingCurrencyRate,
         webPublicUrl,
+        defaultLlmProvider,
         defaultClaudeModel,
+        defaultCodexModel,
+        claudeUsageApiUrl,
+        codexUsageApiUrl,
+        claudeSdkBaseUrl,
+        codexSdkBaseUrl,
       };
       for (const f of fields) {
         const val = displayValues[f.key];
@@ -265,7 +283,13 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
       setBillingCurrency(data.billingCurrency ?? 'USD');
       setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
       setWebPublicUrl(data.webPublicUrl ?? '');
+      setDefaultLlmProvider(data.defaultLlmProvider ?? 'claude');
       setDefaultClaudeModel(data.defaultClaudeModel ?? '');
+      setDefaultCodexModel(data.defaultCodexModel ?? '');
+      setClaudeUsageApiUrl(data.claudeUsageApiUrl ?? '');
+      setCodexUsageApiUrl(data.codexUsageApiUrl ?? '');
+      setClaudeSdkBaseUrl(data.claudeSdkBaseUrl ?? '');
+      setCodexSdkBaseUrl(data.codexSdkBaseUrl ?? '');
       // 刷新计费状态，更新导航栏可见性
       loadBillingStatus();
       setNotice('系统参数已保存，新参数将对后续启动的容器/进程生效');
@@ -467,8 +491,21 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
       <div className="border-t border-border pt-6 space-y-5">
         <h3 className="text-sm font-semibold text-foreground">全局模型默认值</h3>
         <p className="text-xs text-muted-foreground -mt-3">
-          工作区未指定模型时使用此默认值。工作区级别设置优先于此全局设置。
+          工作区未指定时使用此默认值。工作区级别设置优先于此全局设置。
         </p>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            默认 LLM 提供商
+          </label>
+          <select
+            value={defaultLlmProvider}
+            onChange={(e) => setDefaultLlmProvider(e.target.value as 'claude' | 'openai')}
+            className="max-w-md w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="claude">Claude</option>
+            <option value="openai">Codex (OpenAI)</option>
+          </select>
+        </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">
             Claude 默认模型
@@ -489,6 +526,41 @@ export function SystemSettingsSection({ setNotice, setError }: SystemSettingsSec
           <p className="text-xs text-muted-foreground mt-1">
             留空则使用 Claude 提供商配置中的模型，最终默认为 opus。
           </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            Codex 默认模型
+          </label>
+          <Input
+            type="text"
+            value={defaultCodexModel}
+            onChange={(e) => setDefaultCodexModel(e.target.value)}
+            placeholder="gpt-5.4 / gpt-5.3 / 自定义模型 ID"
+            className="max-w-md font-mono"
+          />
+        </div>
+      </div>
+
+      <div className="border-t border-border pt-6 space-y-5">
+        <h3 className="text-sm font-semibold text-foreground">Provider 扩展接口</h3>
+        <p className="text-xs text-muted-foreground -mt-3">
+          用于后续接入更多 SDK/用量接口，Claude 与 Codex 分开配置。
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">Claude 用量 API</label>
+          <Input value={claudeUsageApiUrl} onChange={(e) => setClaudeUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">Codex 用量 API</label>
+          <Input value={codexUsageApiUrl} onChange={(e) => setCodexUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">Claude SDK Base URL</label>
+          <Input value={claudeSdkBaseUrl} onChange={(e) => setClaudeSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">Codex SDK Base URL</label>
+          <Input value={codexSdkBaseUrl} onChange={(e) => setCodexSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
         </div>
       </div>
 

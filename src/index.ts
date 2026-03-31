@@ -142,6 +142,7 @@ import {
   getUserConcurrentContainerLimit,
   reconcileMonthlyUsage,
 } from './billing.js';
+import { getDefaultLlmBinding } from './llm-defaults.js';
 import {
   AgentStatus,
   DbMessage,
@@ -1016,6 +1017,7 @@ function handleNewCommand(chatJid: string, rawName: string): string {
     added_at: now,
     executionMode: 'container',
     created_by: userId,
+    ...getDefaultLlmBinding(),
   };
 
   // Register the workspace
@@ -4520,6 +4522,7 @@ function buildOnNewChat(
         added_at: now,
         executionMode: execMode,
         created_by: userId,
+        ...getDefaultLlmBinding(),
       };
       registerGroup(newJid, newGroup);
       ensureChatExists(newJid);
