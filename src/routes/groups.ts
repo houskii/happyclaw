@@ -86,6 +86,7 @@ import {
 } from '../web.js';
 import { loadTurnTrace } from '../turn-trace.js';
 import { turnObservabilityManager } from '../turn-observability.js';
+import { getDefaultLlmBinding } from '../llm-defaults.js';
 
 /** Annotate AI reply messages with has_trace flag based on turns table */
 function annotateMessagesWithTrace(
@@ -297,7 +298,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       selected_skills: group.selected_skills ?? null,
       pinned_at: pins[jid] || undefined,
       activation_mode: group.activation_mode ?? 'auto',
-      llm_provider: group.llm_provider ?? 'claude',
+      llm_provider: group.llm_provider ?? getDefaultLlmBinding().llm_provider,
       model: group.model ?? undefined,
       thinking_effort: group.thinking_effort ?? null,
       context_compression: group.context_compression ?? 'off',
@@ -636,6 +637,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
     created_by: authUser.id,
+    ...getDefaultLlmBinding(),
   };
 
   setRegisteredGroup(jid, group);

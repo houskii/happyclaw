@@ -87,7 +87,13 @@ export interface SystemSettings {
   turnMaxBatchMs: number;
   traceRetentionDays: number;
   webPublicUrl: string;
+  defaultLlmProvider: 'claude' | 'openai';
   defaultClaudeModel: string;
+  defaultCodexModel: string;
+  claudeUsageApiUrl: string;
+  codexUsageApiUrl: string;
+  claudeSdkBaseUrl: string;
+  codexSdkBaseUrl: string;
 }
 
 export type SettingsTab = 'claude' | 'codex' | 'registration' | 'appearance' | 'system' | 'profile' | 'my-channels' | 'security' | 'groups' | 'memory' | 'skills' | 'mcp-servers' | 'agent-definitions' | 'users' | 'about' | 'bindings';

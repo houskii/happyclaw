@@ -102,6 +102,10 @@ import type { AuthUser, RegisteredGroup } from '../types.js';
 import { hasPermission } from '../permissions.js';
 import { logger } from '../logger.js';
 import {
+  getProviderDefaultModel,
+  getProviderUsageApiUrl,
+} from '../provider-adapters/registry.js';
+import {
   checkImChannelLimit,
   isBillingEnabled,
   clearBillingEnabledCache,
@@ -114,6 +118,81 @@ import {
 } from '../feishu-oauth.js';
 
 const configRoutes = new Hono<{ Variables: Variables }>();
+
+type ProviderOverview = {
+  id: 'claude' | 'codex';
+  workspaceProvider: 'claude' | 'openai';
+  defaultModel: string;
+  usageApiUrl: string;
+  sdkBaseUrl: string;
+  capabilities: {
+    usage: boolean;
+    oauth: boolean;
+    apiKey: boolean;
+    cliAuth: boolean;
+    customEnv: boolean;
+  };
+  status: Record<string, unknown>;
+};
+
+function buildProviderOverview(
+  id: 'claude' | 'codex',
+  settings = getSystemSettings(),
+): ProviderOverview {
+  if (id === 'claude') {
+    const cfg = getClaudeProviderConfig();
+    const thirdParty = listClaudeThirdPartyProfiles();
+    return {
+      id,
+      workspaceProvider: 'claude',
+      defaultModel: getProviderDefaultModel('claude', settings),
+      usageApiUrl: getProviderUsageApiUrl('claude', settings),
+      sdkBaseUrl: settings.claudeSdkBaseUrl || cfg.anthropicBaseUrl || '',
+      capabilities: {
+        usage: true,
+        oauth: true,
+        apiKey: true,
+        cliAuth: false,
+        customEnv: true,
+      },
+      status: {
+        mode: cfg.anthropicBaseUrl ? 'third_party' : 'official',
+        hasAnthropicApiKey: !!cfg.anthropicApiKey,
+        hasAnthropicAuthToken: !!cfg.anthropicAuthToken,
+        hasClaudeCodeOauthToken: !!cfg.claudeCodeOauthToken,
+        hasClaudeOAuthCredentials: !!cfg.claudeOAuthCredentials,
+        activeProfileId: thirdParty.activeProfileId,
+        profileCount: thirdParty.profiles.length,
+      },
+    };
+  }
+
+  const codex = getCodexProviderConfig();
+  const codexProfiles = listCodexProfiles();
+  const cli = detectLocalCodexCli();
+  return {
+    id,
+    workspaceProvider: 'openai',
+    defaultModel: getProviderDefaultModel('codex', settings),
+    usageApiUrl: getProviderUsageApiUrl('codex', settings),
+    sdkBaseUrl: settings.codexSdkBaseUrl || codex.activeProfile?.baseUrl || '',
+    capabilities: {
+      usage: !!getProviderUsageApiUrl('codex', settings),
+      oauth: false,
+      apiKey: true,
+      cliAuth: true,
+      customEnv: true,
+    },
+    status: {
+      mode: codex.mode,
+      hasCliAuth: codex.hasCliAuth,
+      hasEnvApiKey: codex.hasEnvApiKey,
+      cliAuthMode: cli.authMode,
+      activeProfileId: codexProfiles.activeProfileId,
+      profileCount: codexProfiles.profiles.length,
+    },
+  };
+}
 
 /**
  * Count how many IM channels are currently enabled for a user, excluding the given channel.
@@ -240,6 +319,44 @@ configRoutes.get('/codex/models', authMiddleware, async (c) => {
 });
 
 // ─── Codex Provider Config Routes ───────────────────────────────
+
+configRoutes.get(
+  '/providers',
+  authMiddleware,
+  systemConfigMiddleware,
+  (c) => {
+    try {
+      const settings = getSystemSettings();
+      return c.json({
+        providers: [
+          buildProviderOverview('claude', settings),
+          buildProviderOverview('codex', settings),
+        ],
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to load provider overviews');
+      return c.json({ error: 'Failed to load provider overviews' }, 500);
+    }
+  },
+);
+
+configRoutes.get(
+  '/providers/:id',
+  authMiddleware,
+  systemConfigMiddleware,
+  (c) => {
+    const id = c.req.param('id');
+    if (id !== 'claude' && id !== 'codex') {
+      return c.json({ error: 'Unknown provider id' }, 404);
+    }
+    try {
+      return c.json(buildProviderOverview(id));
+    } catch (err) {
+      logger.error({ err, id }, 'Failed to load provider overview');
+      return c.json({ error: 'Failed to load provider overview' }, 500);
+    }
+  },
+);
 
 configRoutes.get('/codex', authMiddleware, systemConfigMiddleware, (c) => {
   try {

@@ -252,7 +252,13 @@ export const SystemSettingsSchema = z.object({
   feishuApiDomain: z.string().min(1).max(100).optional(),
   feishuDocDomain: z.string().min(1).max(100).optional(),
   webPublicUrl: z.string().max(200).optional(),
+  defaultLlmProvider: z.enum(['claude', 'openai']).optional(),
   defaultClaudeModel: z.string().max(100).optional(),
+  defaultCodexModel: z.string().max(100).optional(),
+  claudeUsageApiUrl: z.string().max(2000).optional(),
+  codexUsageApiUrl: z.string().max(2000).optional(),
+  claudeSdkBaseUrl: z.string().max(2000).optional(),
+  codexSdkBaseUrl: z.string().max(2000).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({

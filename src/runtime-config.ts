@@ -2927,7 +2927,14 @@ export interface SystemSettings {
   // Web
   webPublicUrl: string;
   // Global default models (workspace-level overrides these)
+  defaultLlmProvider: 'claude' | 'openai';
   defaultClaudeModel: string;
+  defaultCodexModel: string;
+  // Provider-level extensible endpoints (usage + SDK)
+  claudeUsageApiUrl: string;
+  codexUsageApiUrl: string;
+  claudeSdkBaseUrl: string;
+  codexSdkBaseUrl: string;
 }
 
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -2954,7 +2961,13 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   feishuApiDomain: 'open.feishu.cn',
   feishuDocDomain: 'bytedance.larkoffice.com',
   webPublicUrl: '',
+  defaultLlmProvider: 'claude',
   defaultClaudeModel: '',
+  defaultCodexModel: '',
+  claudeUsageApiUrl: 'https://api.anthropic.com/api/oauth/usage',
+  codexUsageApiUrl: '',
+  claudeSdkBaseUrl: '',
+  codexSdkBaseUrl: '',
 };
 
 function parseIntEnv(envVar: string | undefined, fallback: number): number {
@@ -3074,10 +3087,32 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       typeof raw.webPublicUrl === 'string'
         ? raw.webPublicUrl
         : DEFAULT_SYSTEM_SETTINGS.webPublicUrl,
+    defaultLlmProvider:
+      raw.defaultLlmProvider === 'openai' ? 'openai' : 'claude',
     defaultClaudeModel:
       typeof raw.defaultClaudeModel === 'string'
         ? raw.defaultClaudeModel.trim()
         : DEFAULT_SYSTEM_SETTINGS.defaultClaudeModel,
+    defaultCodexModel:
+      typeof raw.defaultCodexModel === 'string'
+        ? raw.defaultCodexModel.trim()
+        : DEFAULT_SYSTEM_SETTINGS.defaultCodexModel,
+    claudeUsageApiUrl:
+      typeof raw.claudeUsageApiUrl === 'string'
+        ? raw.claudeUsageApiUrl.trim()
+        : DEFAULT_SYSTEM_SETTINGS.claudeUsageApiUrl,
+    codexUsageApiUrl:
+      typeof raw.codexUsageApiUrl === 'string'
+        ? raw.codexUsageApiUrl.trim()
+        : DEFAULT_SYSTEM_SETTINGS.codexUsageApiUrl,
+    claudeSdkBaseUrl:
+      typeof raw.claudeSdkBaseUrl === 'string'
+        ? raw.claudeSdkBaseUrl.trim()
+        : DEFAULT_SYSTEM_SETTINGS.claudeSdkBaseUrl,
+    codexSdkBaseUrl:
+      typeof raw.codexSdkBaseUrl === 'string'
+        ? raw.codexSdkBaseUrl.trim()
+        : DEFAULT_SYSTEM_SETTINGS.codexSdkBaseUrl,
   };
 }
 
@@ -3163,7 +3198,19 @@ function buildEnvFallbackSettings(): SystemSettings {
       process.env.FEISHU_DOC_DOMAIN || DEFAULT_SYSTEM_SETTINGS.feishuDocDomain,
     webPublicUrl:
       process.env.WEB_PUBLIC_URL || DEFAULT_SYSTEM_SETTINGS.webPublicUrl,
+    defaultLlmProvider:
+      process.env.DEFAULT_LLM_PROVIDER === 'openai' ? 'openai' : 'claude',
     defaultClaudeModel: process.env.DEFAULT_CLAUDE_MODEL || DEFAULT_SYSTEM_SETTINGS.defaultClaudeModel,
+    defaultCodexModel:
+      process.env.DEFAULT_CODEX_MODEL || DEFAULT_SYSTEM_SETTINGS.defaultCodexModel,
+    claudeUsageApiUrl:
+      process.env.CLAUDE_USAGE_API_URL || DEFAULT_SYSTEM_SETTINGS.claudeUsageApiUrl,
+    codexUsageApiUrl:
+      process.env.CODEX_USAGE_API_URL || DEFAULT_SYSTEM_SETTINGS.codexUsageApiUrl,
+    claudeSdkBaseUrl:
+      process.env.CLAUDE_SDK_BASE_URL || DEFAULT_SYSTEM_SETTINGS.claudeSdkBaseUrl,
+    codexSdkBaseUrl:
+      process.env.CODEX_SDK_BASE_URL || DEFAULT_SYSTEM_SETTINGS.codexSdkBaseUrl,
   };
 }
 
@@ -3261,6 +3308,10 @@ export function saveSystemSettings(
   if (typeof merged.webPublicUrl === 'string') {
     merged.webPublicUrl = merged.webPublicUrl.replace(/\/+$/, '');
   }
+  merged.defaultLlmProvider =
+    merged.defaultLlmProvider === 'openai' ? 'openai' : 'claude';
+  merged.defaultClaudeModel = (merged.defaultClaudeModel || '').trim();
+  merged.defaultCodexModel = (merged.defaultCodexModel || '').trim();
   // Feishu domains: strip protocol prefix and trailing slash
   for (const key of ['feishuApiDomain', 'feishuDocDomain'] as const) {
     if (typeof merged[key] === 'string') {
@@ -3272,6 +3323,14 @@ export function saveSystemSettings(
     if (!merged[key]) {
       merged[key] = DEFAULT_SYSTEM_SETTINGS[key];
     }
+  }
+  for (const key of [
+    'claudeUsageApiUrl',
+    'codexUsageApiUrl',
+    'claudeSdkBaseUrl',
+    'codexSdkBaseUrl',
+  ] as const) {
+    merged[key] = (merged[key] || '').trim();
   }
 
   fs.mkdirSync(CLAUDE_CONFIG_DIR, { recursive: true });

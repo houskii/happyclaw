@@ -13,6 +13,7 @@ import {
 import { DATA_DIR } from '../config.js';
 import { logger } from '../logger.js';
 import type { AuthUser } from '../types.js';
+import { getProviderUsageApiUrl } from '../provider-adapters/registry.js';
 const usage = new Hono<{ Variables: Variables }>();
 
 usage.use('*', authMiddleware);
@@ -168,7 +169,8 @@ usage.get('/subscription', async (c) => {
 
   // Call Anthropic usage API
   try {
-    const resp = await fetch('https://api.anthropic.com/api/oauth/usage', {
+    const usageApiUrl = getProviderUsageApiUrl('claude');
+    const resp = await fetch(usageApiUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
