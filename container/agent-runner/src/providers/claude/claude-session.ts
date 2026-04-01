@@ -10,7 +10,7 @@
 import { query, type PermissionMode, type Query, type McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { createPreCompactHook, createSafetyLiteHook } from './claude-hooks.js';
 import { PREDEFINED_AGENTS } from './claude-agent-defs.js';
-import { resolveImageMimeType, filterOversizedImages } from '../../image-utils.js';
+import { resolveImageMimeType, filterOversizedImages, type ClaudeImageMimeType } from '../../image-utils.js';
 
 export interface SDKUserMessage {
   type: 'user';
@@ -18,7 +18,10 @@ export interface SDKUserMessage {
     role: 'user';
     content:
       | string
-      | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }>;
+      | Array<
+          | { type: 'text'; text: string }
+          | { type: 'image'; source: { type: 'base64'; media_type: ClaudeImageMimeType; data: string } }
+        >;
   };
   parent_tool_use_id: null;
   session_id: string;
@@ -53,7 +56,7 @@ class MessageStream {
       | string
       | Array<
           | { type: 'text'; text: string }
-          | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+          | { type: 'image'; source: { type: 'base64'; media_type: ClaudeImageMimeType; data: string } }
         >;
 
     if (filteredImages && filteredImages.length > 0) {
