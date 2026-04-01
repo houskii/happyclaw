@@ -67,6 +67,28 @@
 
 上游会定期选择性合并。上游的完整功能介绍请参考 [原项目 README](https://github.com/riba2534/happyclaw)。
 
+### Fork Overlay 治理
+
+为了降低后续同步 upstream 时的冲突，并防止 fork 自身能力发生无记录偏移，这个仓库引入了 `Fork Overlay` 治理层：
+
+- `docs/fork-overlay/capability-spec.md`
+  记录当前 fork 的能力基线，说明哪些能力必须被保真。
+- `docs/fork-overlay/change-log.md`
+  记录 overlay 能力定义随时间的变化。
+- `docs/fork-overlay/reports/`
+  记录每次同步 upstream 后的兼容性结论。
+- `docs/fork-overlay/overlay-ledger.json`
+  机器可读账本，描述 replay 分层、稳定能力与同步配置。
+
+辅助命令：
+
+```bash
+make overlay-check             # 校验 overlay 账本与文档结构
+make overlay-rebuild-dry-run   # 预演基于 upstream 重建 overlay 的流程
+```
+
+这套机制的目标不是让 upstream 直接兼容 Codex 版本，而是让 fork 在持续吸收 upstream 更新的同时，仍然能稳定保留自己的增强能力，并且对“能力是否发生偏移”有显式记录。
+
 ### 关键特性
 
 - **原生 Claude Code 驱动** — 基于 Claude Agent SDK，底层为完整的 Claude Code CLI 运行时，继承其全部能力

@@ -1,0 +1,57 @@
+{
+  "version": "2026.04.01",
+  "overlayName": "happyclaw-fork-overlay",
+  "capabilitySpec": "docs/fork-overlay/capability-spec.md",
+  "changeLog": "docs/fork-overlay/change-log.md",
+  "reportTemplate": "docs/fork-overlay/templates/sync-compatibility-report.md",
+  "reportsDir": "docs/fork-overlay/reports",
+  "stableCapabilities": [
+    {
+      "id": "dual-provider-runtime",
+      "title": "Claude + Codex 双 Provider 执行链路",
+      "scope": "shared"
+    },
+    {
+      "id": "provider-default-binding",
+      "title": "统一的 Provider 默认绑定入口",
+      "scope": "shared"
+    },
+    {
+      "id": "overlay-governance-ledger",
+      "title": "Overlay 文档账本与同步兼容性报告",
+      "scope": "shared"
+    }
+  ],
+  "sync": {
+    "upstreamRemote": "upstream",
+    "upstreamBranch": "main",
+    "overlayRebuildBranchPrefix": "overlay/rebuild",
+    "promotionBranch": "main",
+    "replayLayers": [
+      {
+        "id": "provider-boundary",
+        "title": "Provider boundary and runner abstraction",
+        "commits": [
+          "e85d804"
+        ]
+      },
+      {
+        "id": "codex-runtime",
+        "title": "Codex runtime integration",
+        "commits": [
+          "095ab41",
+          "bb3da40",
+          "57c4823"
+        ]
+      },
+      {
+        "id": "provider-config-ui",
+        "title": "Provider config, overview, and UI",
+        "commits": [
+          "26e0698",
+          "4b5b13c"
+        ]
+      }
+    ]
+  }
+}

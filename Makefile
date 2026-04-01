@@ -1,6 +1,6 @@
 .PHONY: dev dev-backend dev-web build build-backend build-web build-memory-agent start \
        typecheck typecheck-backend typecheck-web typecheck-agent-runner-core typecheck-agent-runner typecheck-memory-agent \
-       format format-check install clean reset-init update-sdk sync-types \
+       format format-check install clean reset-init update-sdk sync-types overlay-check overlay-rebuild-dry-run \
        backup restore help
 
 # ─── Development ─────────────────────────────────────────────
@@ -73,6 +73,14 @@ format-check: ## 检查代码格式
 
 sync-types: ## 同步 shared/ 下的类型定义到各子项目
 	@./scripts/sync-stream-event.sh
+
+# ─── Fork Overlay ─────────────────────────────────────────────
+
+overlay-check: ## 校验 Fork Overlay 账本与文档结构
+	@node ./scripts/check-overlay-ledger.mjs
+
+overlay-rebuild-dry-run: ## 预演基于 upstream 重建 Fork Overlay 的流程（不修改 git 状态）
+	@node ./scripts/rebuild-overlay.mjs
 
 # ─── SDK ─────────────────────────────────────────────────────
 
