@@ -37,6 +37,7 @@ const WORKSPACE_IPC = process.env.HAPPYCLAW_WORKSPACE_IPC || '/workspace/ipc';
 const WORKSPACE_SKILLS = process.env.HAPPYCLAW_SKILLS_DIR || '/workspace/user-skills';
 
 const CLAUDE_MODEL = process.env.HAPPYCLAW_MODEL || process.env.ANTHROPIC_MODEL || 'opus';
+const THINKING_EFFORT = process.env.HAPPYCLAW_THINKING_EFFORT || undefined;
 
 const ipcPaths = buildIpcPaths(WORKSPACE_IPC);
 const IM_CHANNELS_FILE = path.join(WORKSPACE_IPC, '.recent-im-channels.json');
@@ -162,6 +163,7 @@ async function main(): Promise<void> {
       globalDir: WORKSPACE_GLOBAL,
       memoryDir: WORKSPACE_MEMORY,
       model: CLAUDE_MODEL,
+      thinkingEffort: THINKING_EFFORT,
       loadUserMcpServers,
       skillsDir: WORKSPACE_SKILLS,
     });
@@ -180,7 +182,7 @@ async function main(): Promise<void> {
       writeOutput,
     });
   } else if (provider === 'codex') {
-    const codexModel = process.env.HAPPYCLAW_CODEX_MODEL || process.env.OPENAI_MODEL || 'o3-pro';
+    const codexModel = process.env.HAPPYCLAW_CODEX_MODEL || process.env.OPENAI_MODEL || 'gpt-5.4';
     const runner = new CodexRunner({
       containerInput,
       state,
@@ -192,6 +194,9 @@ async function main(): Promise<void> {
       globalDir: WORKSPACE_GLOBAL,
       memoryDir: WORKSPACE_MEMORY,
       model: codexModel,
+      thinkingEffort: THINKING_EFFORT,
+      loadUserMcpServers,
+      skillsDir: WORKSPACE_SKILLS,
     });
     await runner.initialize();
 

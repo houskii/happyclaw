@@ -13,15 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { ContextManager } from 'happyclaw-agent-runner-core';
-import {
-  normalizeHomeFlags,
-  MessagingPlugin,
-  TasksPlugin,
-  GroupsPlugin,
-  MemoryPlugin,
-  FeishuDocsPlugin,
-} from 'happyclaw-agent-runner-core';
-import { ContextManager as ContextManagerClass } from 'happyclaw-agent-runner-core';
+import { normalizeHomeFlags } from 'happyclaw-agent-runner-core';
 
 import type {
   AgentRunner,
@@ -35,6 +27,7 @@ import type {
 import type { ContainerInput, ContainerOutput } from '../../types.js';
 import type { SessionState } from '../../session-state.js';
 import type { IpcPaths } from '../../ipc-handler.js';
+import { createContextManager } from '../../context-manager-factory.js';
 import { CodexSession, type CodexSessionConfig } from './codex-session.js';
 import { convertThreadEvent } from './codex-event-adapter.js';
 import { saveImagesToTempFiles } from './codex-image-utils.js';
@@ -54,6 +47,9 @@ export interface CodexRunnerOptions {
   globalDir: string;
   memoryDir: string;
   model: string;
+  thinkingEffort?: string;
+  loadUserMcpServers: () => Record<string, unknown>;
+  skillsDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +80,11 @@ export class CodexRunner implements AgentRunner {
     // Create temp directory for instructions file and images
     this.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'happyclaw-codex-'));
 
-    // Create ContextManager with all plugins
-    const pluginCtx = {
+    const projectSkillsDir = process.env.HAPPYCLAW_PROJECT_SKILLS_DIR || '/workspace/project-skills';
+    const userSkillsDir = this.opts.skillsDir;
+    const skillsDirs = [projectSkillsDir, userSkillsDir].filter(Boolean);
+
+    this.ctxMgr = createContextManager({
       chatJid: containerInput.chatJid,
       groupFolder: containerInput.groupFolder,
       isHome,
@@ -95,32 +94,8 @@ export class CodexRunner implements AgentRunner {
       workspaceGlobal: globalDir,
       workspaceMemory: memoryDir,
       userId: containerInput.userId,
-    };
-    this.ctxMgr = new ContextManagerClass(pluginCtx);
-
-    // Register plugins
-    this.ctxMgr.register(new MessagingPlugin());
-    this.ctxMgr.register(new TasksPlugin());
-    this.ctxMgr.register(new GroupsPlugin());
-
-    const apiUrl = process.env.HAPPYCLAW_API_URL || 'http://localhost:3000';
-    const apiToken = process.env.HAPPYCLAW_API_TOKEN || '';
-
-    if (containerInput.userId) {
-      this.ctxMgr.register(new MemoryPlugin({
-        apiUrl,
-        apiToken,
-        queryTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_QUERY_TIMEOUT || '60000', 10),
-        sendTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_SEND_TIMEOUT || '120000', 10),
-      }));
-    }
-
-    if (apiUrl && apiToken) {
-      this.ctxMgr.register(new FeishuDocsPlugin({
-        apiUrl,
-        apiToken,
-      }));
-    }
+      skillsDirs,
+    }, { includeSkills: true });
 
     // Write initial instructions file
     this.instructionsFile = path.join(this.tmpDir, 'instructions.md');
@@ -146,14 +121,18 @@ export class CodexRunner implements AgentRunner {
       HAPPYCLAW_IS_ADMIN_HOME: isAdminHome ? '1' : '0',
     };
 
+    const userMcpServers = this.opts.loadUserMcpServers();
+
     // Initialize CodexSession
     const sessionConfig: CodexSessionConfig = {
       model: this.opts.model,
+      thinkingEffort: this.opts.thinkingEffort,
       workingDirectory: groupDir,
       additionalDirectories: [globalDir, memoryDir],
       mcpServerPath: this.mcpServerPath,
       mcpServerEnv: mcpEnv,
       modelInstructionsFile: this.instructionsFile,
+      userMcpServers,
     };
 
     this.session = new CodexSession(sessionConfig, {
@@ -179,7 +158,7 @@ export class CodexRunner implements AgentRunner {
     }
 
     // Start or resume thread
-    this.session.startOrResume(config.resumeAt || undefined);
+    this.session.startOrResume(config.resumeAt || config.sessionId || undefined);
 
     // Run turn and convert events
     let usage: UsageInfo | undefined;
@@ -197,7 +176,9 @@ export class CodexRunner implements AgentRunner {
         // Track thread ID
         if (event.type === 'thread.started') {
           threadId = event.thread_id;
-          yield { kind: 'session_init', sessionId: threadId };
+          if (threadId) {
+            yield { kind: 'session_init', sessionId: threadId };
+          }
         }
 
         // Extract final response text from agent_message items

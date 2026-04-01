@@ -14,6 +14,7 @@ import {
 
 export interface CodexSessionConfig {
   model?: string;
+  thinkingEffort?: string;
   workingDirectory: string;
   additionalDirectories?: string[];
   /** Path to MCP server entry point for HappyClaw tools. */
@@ -22,6 +23,8 @@ export interface CodexSessionConfig {
   mcpServerEnv?: Record<string, string>;
   /** Path to model instructions file. */
   modelInstructionsFile?: string;
+  /** User-configured MCP servers from settings.json (stdio format only). */
+  userMcpServers?: Record<string, unknown>;
 }
 
 export class CodexSession {
@@ -42,14 +45,19 @@ export class CodexSession {
         ...(config.modelInstructionsFile
           ? { model_instructions_file: config.modelInstructionsFile }
           : {}),
-        ...(config.mcpServerPath
+        ...(config.mcpServerPath || config.userMcpServers
           ? {
               mcp_servers: {
-                happyclaw: {
-                  command: 'node',
-                  args: [config.mcpServerPath],
-                  env: config.mcpServerEnv || {},
-                },
+                ...(config.userMcpServers || {}),
+                ...(config.mcpServerPath
+                  ? {
+                      happyclaw: {
+                        command: 'node',
+                        args: [config.mcpServerPath],
+                        env: config.mcpServerEnv || {},
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -70,6 +78,9 @@ export class CodexSession {
       approvalPolicy: 'never',
       webSearchMode: 'live',
       skipGitRepoCheck: true,
+      ...(this.config.thinkingEffort
+        ? { modelReasoningEffort: this.config.thinkingEffort as 'low' | 'medium' | 'high' }
+        : {}),
     };
 
     if (threadId) {

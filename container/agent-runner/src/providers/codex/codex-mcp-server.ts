@@ -12,16 +12,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import {
-  ContextManager,
-  MessagingPlugin,
-  TasksPlugin,
-  GroupsPlugin,
-  MemoryPlugin,
-  FeishuDocsPlugin,
-  type PluginContext,
-  type ToolDefinition,
-} from 'happyclaw-agent-runner-core';
+import { createContextManager } from '../../context-manager-factory.js';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -36,15 +27,16 @@ const CHAT_JID = process.env.HAPPYCLAW_CHAT_JID || '';
 const USER_ID = process.env.HAPPYCLAW_USER_ID || '';
 const IS_HOME = process.env.HAPPYCLAW_IS_HOME === '1';
 const IS_ADMIN_HOME = process.env.HAPPYCLAW_IS_ADMIN_HOME === '1';
-const API_URL = process.env.HAPPYCLAW_API_URL || 'http://localhost:3000';
-const API_TOKEN = process.env.HAPPYCLAW_API_TOKEN || '';
-
 // ---------------------------------------------------------------------------
-// Create ContextManager with all plugins
+// Create ContextManager (shared factory)
 // ---------------------------------------------------------------------------
 
-function createMcpContextManager(): ContextManager {
-  const pluginCtx: PluginContext = {
+function createMcpContextManager() {
+  const projectSkillsDir = process.env.HAPPYCLAW_PROJECT_SKILLS_DIR || '/workspace/project-skills';
+  const userSkillsDir = process.env.HAPPYCLAW_SKILLS_DIR || '/workspace/user-skills';
+  const skillsDirs = [projectSkillsDir, userSkillsDir].filter(Boolean);
+
+  return createContextManager({
     chatJid: CHAT_JID,
     groupFolder: GROUP_FOLDER,
     isHome: IS_HOME,
@@ -54,32 +46,8 @@ function createMcpContextManager(): ContextManager {
     workspaceGlobal: WORKSPACE_GLOBAL,
     workspaceMemory: WORKSPACE_MEMORY,
     userId: USER_ID || undefined,
-  };
-
-  const ctxMgr = new ContextManager(pluginCtx);
-
-  // Register plugins (same set as Claude runner)
-  ctxMgr.register(new MessagingPlugin());
-  ctxMgr.register(new TasksPlugin());
-  ctxMgr.register(new GroupsPlugin());
-
-  if (USER_ID) {
-    ctxMgr.register(new MemoryPlugin({
-      apiUrl: API_URL,
-      apiToken: API_TOKEN,
-      queryTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_QUERY_TIMEOUT || '60000', 10),
-      sendTimeoutMs: parseInt(process.env.HAPPYCLAW_MEMORY_SEND_TIMEOUT || '120000', 10),
-    }));
-  }
-
-  if (API_URL && API_TOKEN) {
-    ctxMgr.register(new FeishuDocsPlugin({
-      apiUrl: API_URL,
-      apiToken: API_TOKEN,
-    }));
-  }
-
-  return ctxMgr;
+    skillsDirs,
+  }, { includeSkills: true });
 }
 
 // ---------------------------------------------------------------------------
