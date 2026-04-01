@@ -80,10 +80,12 @@ export class CodexRunner implements AgentRunner {
     // Create temp directory for instructions file and images
     this.tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'happyclaw-codex-'));
 
+    // Build skills directories list (project-level + user-level)
     const projectSkillsDir = process.env.HAPPYCLAW_PROJECT_SKILLS_DIR || '/workspace/project-skills';
     const userSkillsDir = this.opts.skillsDir;
     const skillsDirs = [projectSkillsDir, userSkillsDir].filter(Boolean);
 
+    // Create ContextManager with all plugins (shared factory)
     this.ctxMgr = createContextManager({
       chatJid: containerInput.chatJid,
       groupFolder: containerInput.groupFolder,
@@ -121,6 +123,7 @@ export class CodexRunner implements AgentRunner {
       HAPPYCLAW_IS_ADMIN_HOME: isAdminHome ? '1' : '0',
     };
 
+    // Load user MCP servers (stdio only — SSE/HTTP not supported by Codex CLI)
     const userMcpServers = this.opts.loadUserMcpServers();
 
     // Initialize CodexSession

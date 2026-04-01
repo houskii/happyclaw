@@ -48,8 +48,8 @@ const state = new SessionState();
 // Protocol helpers
 // ---------------------------------------------------------------------------
 
-const OUTPUT_START_MARKER = '<<<HAPPYCLAW_OUTPUT_START>>>';
-const OUTPUT_END_MARKER = '<<<HAPPYCLAW_OUTPUT_END>>>';
+const OUTPUT_START_MARKER = '---HAPPYCLAW_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---HAPPYCLAW_OUTPUT_END---';
 
 function writeOutput(output: ContainerOutput): void {
   const line = JSON.stringify(output);

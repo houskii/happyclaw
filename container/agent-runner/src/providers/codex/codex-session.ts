@@ -48,7 +48,9 @@ export class CodexSession {
         ...(config.mcpServerPath || config.userMcpServers
           ? {
               mcp_servers: {
+                // User MCP servers first (stdio only)
                 ...(config.userMcpServers || {}),
+                // Built-in happyclaw server overrides any user server with same name
                 ...(config.mcpServerPath
                   ? {
                       happyclaw: {

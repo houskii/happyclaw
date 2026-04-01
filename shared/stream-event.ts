@@ -14,9 +14,11 @@ export type StreamEventType =
   | 'tool_use_start' | 'tool_use_end' | 'tool_progress'
   | 'hook_started' | 'hook_progress' | 'hook_response'
   | 'task_start' | 'task_notification'
+  | 'mode_change'
   | 'todo_update'
   | 'usage'
-  | 'status' | 'init';
+  | 'status' | 'init'
+  | 'turn_started' | 'turn_completed';
 
 export interface StreamEvent {
   eventType: StreamEventType;
@@ -44,6 +46,12 @@ export interface StreamEvent {
   taskId?: string;
   taskStatus?: string;
   taskSummary?: string;
+  /** Sub-agent type (e.g. "Explore", "code-reviewer", "web-researcher") */
+  taskAgentType?: string;
+  /** Sub-agent name (user-assigned name for addressing via SendMessage) */
+  taskAgentName?: string;
+  /** Permission mode change (e.g. agent called ExitPlanMode/EnterPlanMode) */
+  permissionMode?: string;
   isBackground?: boolean;
   isTeammate?: boolean;
   toolInput?: Record<string, unknown>;
@@ -59,4 +67,8 @@ export interface StreamEvent {
     numTurns: number;
     modelUsage?: Record<string, { inputTokens: number; outputTokens: number; costUSD: number }>;
   };
+  /** Turn lifecycle fields (emitted by host process, not agent-runner) */
+  turnStatus?: 'started' | 'completed' | 'interrupted' | 'error' | 'drained';
+  turnChannel?: string;
+  turnMessageCount?: number;
 }

@@ -27,6 +27,7 @@ const CHAT_JID = process.env.HAPPYCLAW_CHAT_JID || '';
 const USER_ID = process.env.HAPPYCLAW_USER_ID || '';
 const IS_HOME = process.env.HAPPYCLAW_IS_HOME === '1';
 const IS_ADMIN_HOME = process.env.HAPPYCLAW_IS_ADMIN_HOME === '1';
+
 // ---------------------------------------------------------------------------
 // Create ContextManager (shared factory)
 // ---------------------------------------------------------------------------
