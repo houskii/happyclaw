@@ -1,0 +1,8 @@
+[INFO] UTC timestamp: 20260401T083544Z
+[INFO] Working branch: work
+[INFO] Upstream: upstream https://github.com/riba2534/happyclaw.git (main)
+[STEP] Configure rerere for conflict reuse
+[STEP] Ensure remote exists
+[STEP] Fetch upstream
+fatal: unable to access 'https://github.com/riba2534/happyclaw.git/': CONNECT tunnel failed, response 403
+[ERROR] Fetch failed. Cannot continue merge workflow.

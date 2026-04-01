@@ -1,0 +1,5 @@
+# 允许出现冲突的文件（每行一个相对路径）
+# 用于 upstream 合并时的门禁；超出此清单将直接失败。
+# 示例：
+# src/index.ts
+# src/runtime-config.ts
