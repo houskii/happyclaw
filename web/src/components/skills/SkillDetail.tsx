@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { File, Folder, Loader2, Lock, Trash2, RefreshCw, Package } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { File, Folder, Loader2, Lock, Trash2, Package } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { useSkillsStore, type SkillDetail as SkillDetailType } from '../../stores/skills';
 import { MarkdownRenderer } from '../chat/MarkdownRenderer';
 

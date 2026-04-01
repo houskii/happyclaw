@@ -198,6 +198,7 @@ function buildVolumeMounts(
   group: RegisteredGroup,
   isAdminHome: boolean,
   mountUserSkills = true,
+  selectedSkills: string[] | null = null,
   agentId?: string,
   ownerHomeFolder?: string,
   taskRunId?: string,
@@ -317,7 +318,7 @@ function buildVolumeMounts(
     }
   } else {
     // 按需挂载：仅挂载选中的 skill 子目录（项目级），用户级整目录挂载（可写，允许创建新 skill）
-    const selectedSet = new Set(selectedSkills);
+    const selectedSet = new Set<string>(selectedSkills);
     // 项目级 skills：按需挂载
     if (fs.existsSync(projectSkillsDir)) {
       for (const name of selectedSet) {
@@ -616,6 +617,7 @@ export async function runContainerAgent(
       group,
       isAdminHome,
       shouldMountUserSkills,
+      null,
       input.agentId,
       ownerHomeFolder,
       input.taskRunId,

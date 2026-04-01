@@ -408,39 +408,6 @@ skillsRoutes.delete('/:id', authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
-// Sync host-level skills (~/.claude/skills/) to admin's user-level directory.
-// Only admin can use this endpoint.
-skillsRoutes.post('/sync-host', authMiddleware, async (c) => {
-  const authUser = c.get('user') as AuthUser;
-  if (authUser.role !== 'admin') {
-    return c.json({ error: 'Only admin can sync host skills' }, 403);
-  }
-
-  const hostDir = getGlobalSkillsDir();
-  const userDir = getUserSkillsDir(authUser.id);
-  fs.mkdirSync(userDir, { recursive: true });
-
-  // 1. 扫描宿主机 skills
-  const hostSkillNames: string[] = [];
-  if (fs.existsSync(hostDir)) {
-    for (const entry of fs.readdirSync(hostDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-      const skillDir = path.join(hostDir, entry.name);
-      // 验证包含 SKILL.md 或 SKILL.md.disabled
-      try {
-        const realPath = fs.realpathSync(skillDir);
-        if (
-          fs.existsSync(path.join(realPath, 'SKILL.md')) ||
-          fs.existsSync(path.join(realPath, 'SKILL.md.disabled'))
-        ) {
-          hostSkillNames.push(entry.name);
-        }
-      } catch {
-        // 跳过 broken symlinks
-      }
-    }
-  }
-
 async function syncHostSkillsForUser(
   userId: string,
 ): Promise<{
