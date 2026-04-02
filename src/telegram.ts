@@ -4,7 +4,12 @@ import fsPromises from 'node:fs/promises';
 import https from 'node:https';
 import { Agent as HttpsAgent } from 'node:https';
 import { ProxyAgent } from 'proxy-agent';
-import { storeChatMetadata, storeMessageDirect, updateChatName } from './db.js';
+import {
+  storeChatMetadata,
+  storeMessageDirect,
+  tryMarkInboundMessageProcessed,
+  updateChatName,
+} from './db.js';
 import { notifyNewImMessage } from './message-notifier.js';
 import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
@@ -420,6 +425,10 @@ export function createTelegramConnection(
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;
+          if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+            logger.debug({ jid, msgId }, 'Duplicate Telegram message receipt, skipping');
+            return;
+          }
           const chatName =
             ctx.chat.title ||
             [ctx.chat.first_name, ctx.chat.last_name]
@@ -614,6 +623,10 @@ export function createTelegramConnection(
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;
+          if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+            logger.debug({ jid, msgId }, 'Duplicate Telegram photo receipt, skipping');
+            return;
+          }
           const chatName =
             ctx.chat.title ||
             [ctx.chat.first_name, ctx.chat.last_name]
@@ -758,6 +771,10 @@ export function createTelegramConnection(
 
           const chatId = String(ctx.chat.id);
           const jid = `telegram:${chatId}`;
+          if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+            logger.debug({ jid, msgId }, 'Duplicate Telegram document receipt, skipping');
+            return;
+          }
           const chatName =
             ctx.chat.title ||
             [ctx.chat.first_name, ctx.chat.last_name]

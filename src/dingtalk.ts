@@ -20,7 +20,12 @@ import {
   type DWClientDownStream,
   EventAck,
 } from 'dingtalk-stream';
-import { storeChatMetadata, storeMessageDirect, updateChatName } from './db.js';
+import {
+  storeChatMetadata,
+  storeMessageDirect,
+  tryMarkInboundMessageProcessed,
+  updateChatName,
+} from './db.js';
 import { notifyNewImMessage } from './message-notifier.js';
 import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
@@ -1134,6 +1139,10 @@ export function createDingTalkConnection(
       const jid = isGroup
         ? `dingtalk:group:${conversationId}`
         : `dingtalk:c2c:${data.senderId}`;
+      if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+        logger.info({ jid, msgId }, 'DingTalk dropped: duplicate persisted receipt');
+        return;
+      }
       const senderName = data.senderNick || '钉钉用户';
       const chatName = isGroup
         ? `钉钉群 ${conversationId.slice(0, 8)}`

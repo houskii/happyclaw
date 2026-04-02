@@ -6,6 +6,7 @@ import {
   setLastGroupSync,
   storeChatMetadata,
   storeMessageDirect,
+  tryMarkInboundMessageProcessed,
   updateChatName,
 } from './db.js';
 import { logger } from './logger.js';
@@ -908,6 +909,15 @@ export function createFeishuConnection(
     }
 
     const chatJid = `feishu:${chatId}`;
+
+    if (!tryMarkInboundMessageProcessed(chatJid, messageId)) {
+      logger.debug(
+        { chatJid, messageId, source },
+        'Duplicate inbound Feishu message receipt, skipping',
+      );
+      return;
+    }
+
     const resolvedSenderName = senderName || getSenderName(senderOpenId);
     const resolvedChatName = chatType === 'p2p' ? '飞书私聊' : '飞书群聊';
 

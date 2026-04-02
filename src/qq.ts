@@ -13,7 +13,12 @@ import crypto from 'crypto';
 import http from 'node:http';
 import https from 'node:https';
 import WebSocket from 'ws';
-import { storeChatMetadata, storeMessageDirect, updateChatName } from './db.js';
+import {
+  storeChatMetadata,
+  storeMessageDirect,
+  tryMarkInboundMessageProcessed,
+  updateChatName,
+} from './db.js';
 import { notifyNewImMessage } from './message-notifier.js';
 import { broadcastNewMessage } from './web.js';
 import { logger } from './logger.js';
@@ -690,6 +695,10 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
       if (!userOpenId) return;
 
       const jid = `qq:c2c:${userOpenId}`;
+      if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+        logger.debug({ jid, msgId }, 'Duplicate QQ C2C message receipt, skipping');
+        return;
+      }
       const senderName = data.author?.username || `QQ用户`;
       const chatName = senderName;
 
@@ -842,6 +851,10 @@ export function createQQConnection(config: QQConnectionConfig): QQConnection {
       if (!groupOpenId) return;
 
       const jid = `qq:group:${groupOpenId}`;
+      if (!tryMarkInboundMessageProcessed(jid, msgId)) {
+        logger.debug({ jid, msgId }, 'Duplicate QQ group message receipt, skipping');
+        return;
+      }
       const memberOpenId = data.author?.member_openid;
       const senderName = data.author?.username || `QQ群成员`;
       const chatName = `QQ群 ${groupOpenId.slice(0, 8)}`;

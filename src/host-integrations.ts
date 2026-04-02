@@ -8,7 +8,7 @@ import {
   type HostIntegrationConflictOverride,
   type HostIntegrationSource,
 } from './runtime-config.js';
-import { validateSkillId } from './skill-utils.js';
+import { parseFrontmatter, validateSkillId } from './skill-utils.js';
 
 export type HostIntegrationStatusType =
   | 'ok'
@@ -113,6 +113,25 @@ export interface HostIntegrationConflictItem {
   effectiveSourcePath: string | null;
   warning: string | null;
   candidates: HostIntegrationConflictCandidate[];
+}
+
+export interface SkillHostVariantDetail {
+  itemId: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourcePath: string;
+  content: string;
+  enabled: boolean;
+  name: string;
+  description: string;
+}
+
+export interface McpHostVariantDetail {
+  itemId: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourcePath: string;
+  entry: Record<string, unknown>;
 }
 
 function expandHomePath(input: string): string {
@@ -476,6 +495,16 @@ function buildSkillCandidates(
   return byId;
 }
 
+function getSkillCandidatesForItem(itemId: string): CollectedSkillCandidate[] {
+  const sources = getSystemSettings().hostIntegrationSources;
+  return buildSkillCandidates(sources)[itemId] ?? [];
+}
+
+function getMcpCandidatesForItem(itemId: string): CollectedMcpCandidate[] {
+  const sources = getSystemSettings().hostIntegrationSources;
+  return buildMcpCandidates(sources)[itemId] ?? [];
+}
+
 function buildMcpCandidates(
   sources: HostIntegrationSource[],
 ): Record<string, CollectedMcpCandidate[]> {
@@ -731,6 +760,57 @@ export function getMcpHostConflictOverview(): HostIntegrationConflictItem[] {
     .filter(([, candidates]) => candidates.length > 1)
     .map(([itemId, candidates]) => toConflictItem('mcp', itemId, candidates))
     .sort((a, b) => a.itemId.localeCompare(b.itemId));
+}
+
+export function getSkillHostVariant(
+  itemId: string,
+  sourceId: string,
+): SkillHostVariantDetail | null {
+  const candidate = getSkillCandidatesForItem(itemId).find(
+    (item) => item.sourceId === sourceId,
+  );
+  if (!candidate) return null;
+
+  const skillMdPath = path.join(candidate.skillPath, 'SKILL.md');
+  const skillMdDisabledPath = path.join(candidate.skillPath, 'SKILL.md.disabled');
+  const enabled = fs.existsSync(skillMdPath);
+  const filePath = enabled ? skillMdPath : skillMdDisabledPath;
+  if (!fs.existsSync(filePath)) return null;
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const frontmatter = parseFrontmatter(content);
+    return {
+      itemId,
+      sourceId: candidate.sourceId,
+      sourceLabel: candidate.sourceLabel,
+      sourcePath: candidate.sourcePath,
+      content,
+      enabled,
+      name: frontmatter.name || itemId,
+      description: frontmatter.description || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function getMcpHostVariant(
+  itemId: string,
+  sourceId: string,
+): McpHostVariantDetail | null {
+  const candidate = getMcpCandidatesForItem(itemId).find(
+    (item) => item.sourceId === sourceId,
+  );
+  if (!candidate) return null;
+
+  return {
+    itemId,
+    sourceId: candidate.sourceId,
+    sourceLabel: candidate.sourceLabel,
+    sourcePath: candidate.sourcePath,
+    entry: candidate.entry,
+  };
 }
 
 export function syncHostIntegrationsForUser(userId: string): HostIntegrationSyncResult {

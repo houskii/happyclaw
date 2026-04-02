@@ -11,6 +11,7 @@ import { getSystemSettings, saveSystemSettings, type SystemSettings } from '../r
 import {
   getSkillsHostConflictOverview,
   getSkillsHostSyncSnapshot,
+  getSkillHostVariant,
   syncHostIntegrationsForUser,
 } from '../host-integrations.js';
 import {
@@ -301,7 +302,23 @@ skillsRoutes.patch('/conflicts/:id', authMiddleware, async (c) => {
   }
 
   updateSkillConflictOverride(id, mode, pinnedSourceId);
+  syncHostIntegrationsForUser(authUser.id);
   return c.json({ success: true, conflicts: getSkillsHostConflictOverview() });
+});
+
+skillsRoutes.get('/:id/variants/:sourceId', authMiddleware, (c) => {
+  const id = c.req.param('id');
+  const sourceId = c.req.param('sourceId');
+  if (!validateSkillId(id) || !sourceId) {
+    return c.json({ error: 'Invalid skill or source ID' }, 400);
+  }
+
+  const variant = getSkillHostVariant(id, sourceId);
+  if (!variant) {
+    return c.json({ error: 'Skill source variant not found' }, 404);
+  }
+
+  return c.json({ variant });
 });
 
 skillsRoutes.get('/:id', authMiddleware, (c) => {

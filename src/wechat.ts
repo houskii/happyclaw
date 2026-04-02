@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import {
   storeChatMetadata,
   storeMessageDirect,
+  tryMarkInboundMessageProcessed,
   updateChatName,
 } from './db.js';
 import { notifyNewImMessage } from './message-notifier.js';
@@ -502,6 +503,10 @@ export function createWeChatConnection(
       }
 
       const jid = `wechat:${fromUserId}`;
+      if (!tryMarkInboundMessageProcessed(jid, key)) {
+        logger.debug({ jid, key }, 'Duplicate WeChat message receipt, skipping');
+        return;
+      }
       const senderName = fromUserId.split('@')[0] || 'WeChat用户';
       const chatName = senderName;
 

@@ -1,24 +1,37 @@
-import { useState } from 'react';
-import { Download, Eye, EyeOff, Pencil, Save, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Download, Eye, EyeOff, Loader2, Pencil, Save, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import type { McpServer } from '../../stores/mcp-servers';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { McpServer, McpServerVariantDetail } from '../../stores/mcp-servers';
 import { useMcpServersStore } from '../../stores/mcp-servers';
+import type { HostIntegrationConflictItem } from '../../types/host-integrations';
 
 interface McpServerDetailProps {
   server: McpServer | null;
   onDeleted?: () => void;
+  conflict?: HostIntegrationConflictItem | null;
 }
 
-export function McpServerDetail({ server, onDeleted }: McpServerDetailProps) {
+export function McpServerDetail({ server, onDeleted, conflict }: McpServerDetailProps) {
   const updateServer = useMcpServersStore((s) => s.updateServer);
   const deleteServer = useMcpServersStore((s) => s.deleteServer);
+  const updateConflict = useMcpServersStore((s) => s.updateConflict);
+  const getServerVariant = useMcpServersStore((s) => s.getServerVariant);
 
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
+  const [variant, setVariant] = useState<McpServerVariantDetail | null>(null);
+  const [variantLoading, setVariantLoading] = useState(false);
 
   // Edit form state
   const [editCommand, setEditCommand] = useState('');
@@ -28,6 +41,46 @@ export function McpServerDetail({ server, onDeleted }: McpServerDetailProps) {
   const [editHeaders, setEditHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [editDescription, setEditDescription] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const previewSourceId = useMemo(() => {
+    if (!conflict) return null;
+    if (conflict.mode === 'pinned' && conflict.pinnedSourceId) {
+      return conflict.pinnedSourceId;
+    }
+    return conflict.effectiveSourceId;
+  }, [conflict]);
+
+  useEffect(() => {
+    if (!server || !conflict || !previewSourceId) {
+      setVariant(null);
+      setVariantLoading(false);
+      return;
+    }
+
+    let disposed = false;
+    const loadVariant = async () => {
+      setVariantLoading(true);
+      try {
+        const next = await getServerVariant(server.id, previewSourceId);
+        if (!disposed) {
+          setVariant(next);
+        }
+      } catch {
+        if (!disposed) {
+          setVariant(null);
+        }
+      } finally {
+        if (!disposed) {
+          setVariantLoading(false);
+        }
+      }
+    };
+
+    void loadVariant();
+    return () => {
+      disposed = true;
+    };
+  }, [server, conflict, previewSourceId, getServerVariant]);
 
   if (!server) {
     return (
@@ -167,6 +220,132 @@ export function McpServerDetail({ server, onDeleted }: McpServerDetailProps) {
             </button>
           </div>
         </div>
+
+        {conflict && (
+          <div className="rounded-lg border border-warning/30 bg-warning-bg/30 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="text-sm font-medium text-foreground">来源版本</div>
+                <div className="text-xs text-muted-foreground">
+                  当前生效：
+                  <span className="ml-1 font-medium text-foreground">
+                    {conflict.effectiveSourceLabel ?? '未选择'}
+                  </span>
+                  {conflict.effectiveSourcePath && (
+                    <span className="ml-1 font-mono">{conflict.effectiveSourcePath}</span>
+                  )}
+                </div>
+                {conflict.warning && (
+                  <div className="text-xs text-warning">{conflict.warning}</div>
+                )}
+              </div>
+              <div className="w-full lg:w-72">
+                <Select
+                  value={
+                    conflict.mode === 'pinned' && conflict.pinnedSourceId
+                      ? conflict.pinnedSourceId
+                      : 'auto'
+                  }
+                  onValueChange={(value) => {
+                    void updateConflict(
+                      conflict.itemId,
+                      value === 'auto' ? 'auto' : 'pinned',
+                      value === 'auto' ? undefined : value,
+                    );
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动（按来源优先级）</SelectItem>
+                    {conflict.candidates.map((candidate) => (
+                      <SelectItem key={candidate.sourceId} value={candidate.sourceId}>
+                        {candidate.sourceLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {conflict && (
+          <div className="mt-3 rounded-lg border border-border/60 bg-background/70 p-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">当前来源配置预览</div>
+                {variant && (
+                  <div className="text-xs text-muted-foreground">
+                    {variant.sourceLabel}
+                    <span className="ml-1 font-mono">{variant.sourcePath}</span>
+                  </div>
+                )}
+              </div>
+              {variantLoading && <Loader2 className="animate-spin text-primary" size={16} />}
+            </div>
+            {variant ? (
+              <div className="space-y-2 text-sm">
+                {'type' in variant.entry && typeof variant.entry.type === 'string' ? (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">类型：</span>
+                      <span className="text-foreground ml-1">{String(variant.entry.type)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">URL：</span>
+                      <span className="ml-1 break-all font-mono text-foreground">
+                        {String(variant.entry.url ?? '')}
+                      </span>
+                    </div>
+                    {variant.entry.headers &&
+                      typeof variant.entry.headers === 'object' &&
+                      !Array.isArray(variant.entry.headers) && (
+                        <div>
+                          <div className="mb-1 text-muted-foreground">Headers</div>
+                          <pre className="overflow-auto rounded-md border border-border bg-background p-3 text-xs text-foreground">
+                            {JSON.stringify(variant.entry.headers, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">命令：</span>
+                      <span className="ml-1 break-all font-mono text-foreground">
+                        {String(variant.entry.command ?? '')}
+                      </span>
+                    </div>
+                    {Array.isArray(variant.entry.args) && variant.entry.args.length > 0 && (
+                      <div>
+                        <div className="mb-1 text-muted-foreground">参数</div>
+                        <pre className="overflow-auto rounded-md border border-border bg-background p-3 text-xs text-foreground">
+                          {JSON.stringify(variant.entry.args, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {variant.entry.env &&
+                      typeof variant.entry.env === 'object' &&
+                      !Array.isArray(variant.entry.env) && (
+                        <div>
+                          <div className="mb-1 text-muted-foreground">环境变量</div>
+                          <pre className="overflow-auto rounded-md border border-border bg-background p-3 text-xs text-foreground">
+                            {JSON.stringify(variant.entry.env, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                {variantLoading ? '正在加载来源配置…' : '当前来源没有可预览的配置'}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {editing ? (

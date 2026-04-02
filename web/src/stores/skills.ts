@@ -22,6 +22,17 @@ export interface SkillDetail extends Skill {
   content: string;
 }
 
+export interface SkillVariantDetail {
+  itemId: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourcePath: string;
+  content: string;
+  enabled: boolean;
+  name: string;
+  description: string;
+}
+
 interface SkillsState {
   skills: Skill[];
   conflicts: HostIntegrationConflictItem[];
@@ -37,6 +48,7 @@ interface SkillsState {
   toggleSkill: (id: string, enabled: boolean) => Promise<void>;
   deleteSkill: (id: string) => Promise<void>;
   getSkillDetail: (id: string) => Promise<SkillDetail>;
+  getSkillVariant: (id: string, sourceId: string) => Promise<SkillVariantDetail>;
 }
 
 export const useSkillsStore = create<SkillsState>((set, get) => ({
@@ -101,5 +113,12 @@ export const useSkillsStore = create<SkillsState>((set, get) => ({
   getSkillDetail: async (id: string) => {
     const data = await api.get<{ skill: SkillDetail }>(`/api/skills/${id}`);
     return data.skill;
+  },
+
+  getSkillVariant: async (id: string, sourceId: string) => {
+    const data = await api.get<{ variant: SkillVariantDetail }>(
+      `/api/skills/${encodeURIComponent(id)}/variants/${encodeURIComponent(sourceId)}`,
+    );
+    return data.variant;
   },
 }));

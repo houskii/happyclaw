@@ -1,11 +1,13 @@
 import { Lock } from 'lucide-react';
 import type { Skill } from '../../stores/skills';
 import { useSkillsStore } from '../../stores/skills';
+import type { HostIntegrationConflictItem } from '../../types/host-integrations';
 
 interface SkillCardProps {
   skill: Skill;
   selected: boolean;
   onSelect: () => void;
+  conflict?: HostIntegrationConflictItem;
 }
 
 const SOURCE_LABELS: Record<Skill['source'], string> = {
@@ -13,7 +15,7 @@ const SOURCE_LABELS: Record<Skill['source'], string> = {
   project: '项目级',
 };
 
-export function SkillCard({ skill, selected, onSelect }: SkillCardProps) {
+export function SkillCard({ skill, selected, onSelect, conflict }: SkillCardProps) {
   const toggleSkill = useSkillsStore((s) => s.toggleSkill);
   const isReadonly = skill.source === 'project';
 
@@ -47,6 +49,11 @@ export function SkillCard({ skill, selected, onSelect }: SkillCardProps) {
             {skill.userInvocable && (
               <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
                 可调用
+              </span>
+            )}
+            {conflict && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-warning-bg text-warning">
+                来源冲突
               </span>
             )}
           </div>

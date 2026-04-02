@@ -52,6 +52,7 @@ let db: InstanceType<typeof Database>;
 let _stmts: {
   storeMessageSelect: any;
   storeMessageInsert: any;
+  insertInboundMessageReceipt: any;
   insertUsageInsert: any;
   insertUsageUpsert: any;
   getSessionWithUser: any;
@@ -78,6 +79,11 @@ function stmts() {
           id, chat_jid, source_jid, sender, sender_name, content, timestamp, is_from_me,
           attachments, token_usage, turn_id, session_id, sdk_message_uuid, source_kind, finalization_reason
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ),
+      insertInboundMessageReceipt: db.prepare(
+        `INSERT OR IGNORE INTO inbound_message_receipts (
+          source_jid, message_id, processed_at
+        ) VALUES (?, ?, ?)`,
       ),
       insertUsageInsert: db.prepare(
         `INSERT INTO usage_records (id, user_id, group_folder, agent_id, message_id, model,
@@ -249,6 +255,15 @@ export function initDatabase(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_jid_ts ON messages(chat_jid, timestamp);
+
+    CREATE TABLE IF NOT EXISTS inbound_message_receipts (
+      source_jid TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      processed_at TEXT NOT NULL,
+      PRIMARY KEY (source_jid, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_inbound_message_receipts_processed_at
+      ON inbound_message_receipts(processed_at);
 
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
@@ -4102,6 +4117,18 @@ export function deleteMessage(chatJid: string, messageId: string): boolean {
   const result = db
     .prepare('DELETE FROM messages WHERE id = ? AND chat_jid = ?')
     .run(messageId, chatJid);
+  return result.changes > 0;
+}
+
+export function tryMarkInboundMessageProcessed(
+  sourceJid: string,
+  messageId: string,
+): boolean {
+  const result = stmts().insertInboundMessageReceipt.run(
+    sourceJid,
+    messageId,
+    new Date().toISOString(),
+  );
   return result.changes > 0;
 }
 

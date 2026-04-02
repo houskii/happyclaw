@@ -1,21 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { File, Folder, Loader2, Lock, Trash2, Package } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { useSkillsStore, type SkillDetail as SkillDetailType } from '../../stores/skills';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  useSkillsStore,
+  type SkillDetail as SkillDetailType,
+  type SkillVariantDetail,
+} from '../../stores/skills';
 import { MarkdownRenderer } from '../chat/MarkdownRenderer';
+import type { HostIntegrationConflictItem } from '../../types/host-integrations';
 
 interface SkillDetailProps {
   skillId: string | null;
   onDeleted?: () => void;
+  conflict?: HostIntegrationConflictItem | null;
 }
 
-export function SkillDetail({ skillId, onDeleted }: SkillDetailProps) {
+export function SkillDetail({ skillId, onDeleted, conflict }: SkillDetailProps) {
   const [detail, setDetail] = useState<SkillDetailType | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [variant, setVariant] = useState<SkillVariantDetail | null>(null);
+  const [variantLoading, setVariantLoading] = useState(false);
   const getSkillDetail = useSkillsStore((state) => state.getSkillDetail);
+  const getSkillVariant = useSkillsStore((state) => state.getSkillVariant);
   const deleteSkill = useSkillsStore((state) => state.deleteSkill);
+  const updateConflict = useSkillsStore((state) => state.updateConflict);
+
+  const previewSourceId = useMemo(() => {
+    if (!conflict) return null;
+    if (conflict.mode === 'pinned' && conflict.pinnedSourceId) {
+      return conflict.pinnedSourceId;
+    }
+    return conflict.effectiveSourceId;
+  }, [conflict]);
 
   useEffect(() => {
     if (!skillId) {
@@ -39,7 +64,39 @@ export function SkillDetail({ skillId, onDeleted }: SkillDetailProps) {
     };
 
     loadDetail();
-  }, [skillId, getSkillDetail]);
+  }, [skillId, getSkillDetail, conflict?.effectiveSourceId]);
+
+  useEffect(() => {
+    if (!skillId || !previewSourceId || !conflict) {
+      setVariant(null);
+      setVariantLoading(false);
+      return;
+    }
+
+    let disposed = false;
+    const loadVariant = async () => {
+      setVariantLoading(true);
+      try {
+        const next = await getSkillVariant(skillId, previewSourceId);
+        if (!disposed) {
+          setVariant(next);
+        }
+      } catch {
+        if (!disposed) {
+          setVariant(null);
+        }
+      } finally {
+        if (!disposed) {
+          setVariantLoading(false);
+        }
+      }
+    };
+
+    void loadVariant();
+    return () => {
+      disposed = true;
+    };
+  }, [skillId, previewSourceId, conflict, getSkillVariant]);
 
   if (!skillId) {
     return (
@@ -140,6 +197,87 @@ export function SkillDetail({ skillId, onDeleted }: SkillDetailProps) {
             </div>
           )}
         </div>
+
+        {conflict && (
+          <div className="mb-4 rounded-lg border border-warning/30 bg-warning-bg/30 p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="text-sm font-medium text-foreground">来源版本</div>
+                <div className="text-xs text-muted-foreground">
+                  当前生效：
+                  <span className="ml-1 font-medium text-foreground">
+                    {conflict.effectiveSourceLabel ?? '未选择'}
+                  </span>
+                  {conflict.effectiveSourcePath && (
+                    <span className="ml-1 font-mono">{conflict.effectiveSourcePath}</span>
+                  )}
+                </div>
+                {conflict.warning && (
+                  <div className="text-xs text-warning">{conflict.warning}</div>
+                )}
+              </div>
+              <div className="w-full lg:w-72">
+                <Select
+                  value={
+                    conflict.mode === 'pinned' && conflict.pinnedSourceId
+                      ? conflict.pinnedSourceId
+                      : 'auto'
+                  }
+                  onValueChange={(value) => {
+                    void updateConflict(
+                      conflict.itemId,
+                      value === 'auto' ? 'auto' : 'pinned',
+                      value === 'auto' ? undefined : value,
+                    );
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动（按来源优先级）</SelectItem>
+                    {conflict.candidates.map((candidate) => (
+                      <SelectItem key={candidate.sourceId} value={candidate.sourceId}>
+                        {candidate.sourceLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {conflict && (
+          <div className="mb-4 rounded-lg border border-border/60 bg-background/70 p-4">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">当前来源内容预览</div>
+                {variant && (
+                  <div className="text-xs text-muted-foreground">
+                    {variant.sourceLabel}
+                    <span className="ml-1 font-mono">{variant.sourcePath}</span>
+                  </div>
+                )}
+              </div>
+              {variantLoading && <Loader2 className="animate-spin text-primary" size={16} />}
+            </div>
+            {variant ? (
+              <>
+                {variant.description && (
+                  <div className="mb-3 text-sm text-muted-foreground">{variant.description}</div>
+                )}
+                <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-3">
+                  <MarkdownRenderer content={variant.content} variant="docs" />
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                {variantLoading ? '正在加载来源内容…' : '当前来源没有可预览的内容'}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 元信息区域 */}
         <div className="space-y-2 text-sm">

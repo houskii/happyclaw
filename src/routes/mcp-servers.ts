@@ -8,7 +8,11 @@ import type { AuthUser } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { DATA_DIR } from '../config.js';
 import { checkMcpServerLimit } from '../billing.js';
-import { syncHostIntegrationsForUser, getMcpHostConflictOverview } from '../host-integrations.js';
+import {
+  syncHostIntegrationsForUser,
+  getMcpHostConflictOverview,
+  getMcpHostVariant,
+} from '../host-integrations.js';
 import { getSystemSettings, saveSystemSettings } from '../runtime-config.js';
 
 // --- Types ---
@@ -132,7 +136,24 @@ mcpServersRoutes.patch('/conflicts/:id', authMiddleware, async (c) => {
   }
 
   updateMcpConflictOverride(id, mode, pinnedSourceId);
+  syncHostIntegrationsForUser(authUser.id);
   return c.json({ success: true, conflicts: getMcpHostConflictOverview() });
+});
+
+mcpServersRoutes.get('/:id/variants/:sourceId', authMiddleware, async (c) => {
+  const id = c.req.param('id');
+  const sourceId = c.req.param('sourceId');
+
+  if (!validateServerId(id) || !sourceId) {
+    return c.json({ error: 'Invalid server or source ID' }, 400);
+  }
+
+  const variant = getMcpHostVariant(id, sourceId);
+  if (!variant) {
+    return c.json({ error: 'MCP source variant not found' }, 404);
+  }
+
+  return c.json({ variant });
 });
 
 // POST / — add a new MCP server

@@ -1,14 +1,16 @@
 import { Download } from 'lucide-react';
 import type { McpServer } from '../../stores/mcp-servers';
 import { useMcpServersStore } from '../../stores/mcp-servers';
+import type { HostIntegrationConflictItem } from '../../types/host-integrations';
 
 interface McpServerCardProps {
   server: McpServer;
   selected: boolean;
   onSelect: () => void;
+  conflict?: HostIntegrationConflictItem;
 }
 
-export function McpServerCard({ server, selected, onSelect }: McpServerCardProps) {
+export function McpServerCard({ server, selected, onSelect, conflict }: McpServerCardProps) {
   const toggleServer = useMcpServersStore((s) => s.toggleServer);
 
   const isHttpType = server.type === 'http' || server.type === 'sse';
@@ -38,6 +40,11 @@ export function McpServerCard({ server, selected, onSelect }: McpServerCardProps
               <span className="px-2 py-0.5 rounded text-xs font-medium bg-warning-bg text-warning inline-flex items-center gap-1">
                 <Download size={10} />
                 已同步
+              </span>
+            )}
+            {conflict && (
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-warning-bg text-warning">
+                来源冲突
               </span>
             )}
           </div>

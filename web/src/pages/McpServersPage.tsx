@@ -1,20 +1,12 @@
 import { useEffect, useState, useMemo } from 'react';
-import { AlertTriangle, Plus, RefreshCw, Server } from 'lucide-react';
+import { Plus, RefreshCw, Server } from 'lucide-react';
 import { SearchInput } from '@/components/common';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonCardList } from '@/components/common/Skeletons';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useMcpServersStore } from '../stores/mcp-servers';
-import { useAuthStore } from '../stores/auth';
 import { McpServerCard } from '../components/mcp-servers/McpServerCard';
 import { McpServerDetail } from '../components/mcp-servers/McpServerDetail';
 import { AddMcpServerDialog } from '../components/mcp-servers/AddMcpServerDialog';
@@ -27,9 +19,7 @@ export function McpServersPage() {
     error,
     loadServers,
     addServer,
-    updateConflict,
   } = useMcpServersStore();
-  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -52,9 +42,14 @@ export function McpServersPage() {
 
   const manualServers = filtered.filter((s) => !s.syncedFromHost);
   const syncedServers = filtered.filter((s) => s.syncedFromHost);
+  const conflictMap = useMemo(
+    () => new Map(conflicts.map((conflict) => [conflict.itemId, conflict])),
+    [conflicts],
+  );
 
   const enabledCount = servers.filter((s) => s.enabled).length;
   const selectedServer = servers.find((s) => s.id === selectedId) || null;
+  const selectedConflict = selectedId ? conflictMap.get(selectedId) ?? null : null;
 
   const handleAdd = async (server: Parameters<typeof addServer>[0]) => {
     await addServer(server);
@@ -85,95 +80,6 @@ export function McpServersPage() {
 
         {/* Content */}
         <div className="space-y-4 p-4">
-          {conflicts.length > 0 && (
-            <Card className="border-warning/30 bg-warning-bg/30">
-              <CardContent className="space-y-4 p-4">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <AlertTriangle size={16} className="text-warning" />
-                  冲突 MCP 版本管理
-                </div>
-                <div className="space-y-3">
-                  {conflicts.map((conflict) => (
-                    <div
-                      key={conflict.itemId}
-                      className="rounded-lg border border-border/60 bg-background p-3"
-                    >
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="font-medium text-foreground">
-                            {conflict.itemId}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            当前生效：
-                            <span className="ml-1 font-medium text-foreground">
-                              {conflict.effectiveSourceLabel ?? '未选择'}
-                            </span>
-                            {conflict.effectiveSourcePath && (
-                              <span className="ml-1 font-mono">
-                                {conflict.effectiveSourcePath}
-                              </span>
-                            )}
-                          </div>
-                          {conflict.warning && (
-                            <div className="text-xs text-warning">
-                              {conflict.warning}
-                            </div>
-                          )}
-                          <div className="space-y-1 text-xs text-muted-foreground">
-                            {conflict.candidates.map((candidate) => (
-                              <div key={candidate.sourceId}>
-                                {candidate.sourceLabel}
-                                <span className="ml-1 font-mono">
-                                  {candidate.sourcePath}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="w-full lg:w-64">
-                          <Select
-                            value={
-                              conflict.mode === 'pinned' && conflict.pinnedSourceId
-                                ? conflict.pinnedSourceId
-                                : 'auto'
-                            }
-                            disabled={!isAdmin}
-                            onValueChange={(value) => {
-                              void updateConflict(
-                                conflict.itemId,
-                                value === 'auto' ? 'auto' : 'pinned',
-                                value === 'auto' ? undefined : value,
-                              );
-                            }}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="auto">自动（按来源优先级）</SelectItem>
-                              {conflict.candidates.map((candidate) => (
-                                <SelectItem
-                                  key={candidate.sourceId}
-                                  value={candidate.sourceId}
-                                >
-                                  {candidate.sourceLabel}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {!isAdmin && (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              仅管理员可调整生效版本
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
           <Card className="border-border/60 bg-muted/20">
             <CardContent className="p-4 text-sm text-muted-foreground">
               宿主来源路径与 MCP 接入开关已统一收口到
@@ -220,6 +126,7 @@ export function McpServersPage() {
                           <McpServerCard
                             key={server.id}
                             server={server}
+                            conflict={conflictMap.get(server.id)}
                             selected={selectedId === server.id}
                             onSelect={() => setSelectedId(server.id)}
                           />
@@ -238,6 +145,7 @@ export function McpServersPage() {
                           <McpServerCard
                             key={server.id}
                             server={server}
+                            conflict={conflictMap.get(server.id)}
                             selected={selectedId === server.id}
                             onSelect={() => setSelectedId(server.id)}
                           />
@@ -252,7 +160,11 @@ export function McpServersPage() {
 
           {/* Right detail (desktop) */}
           <div className="hidden lg:block lg:w-1/2 xl:w-3/5">
-            <McpServerDetail server={selectedServer} onDeleted={() => setSelectedId(null)} />
+            <McpServerDetail
+              server={selectedServer}
+              conflict={selectedConflict}
+              onDeleted={() => setSelectedId(null)}
+            />
           </div>
           </div>
         </div>
@@ -260,7 +172,11 @@ export function McpServersPage() {
         {/* Mobile detail */}
         {selectedId && selectedServer && (
           <div className="lg:hidden p-4">
-            <McpServerDetail server={selectedServer} onDeleted={() => setSelectedId(null)} />
+            <McpServerDetail
+              server={selectedServer}
+              conflict={selectedConflict}
+              onDeleted={() => setSelectedId(null)}
+            />
           </div>
         )}
       </div>

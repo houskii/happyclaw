@@ -19,6 +19,14 @@ export interface McpServer {
   addedAt: string;
 }
 
+export interface McpServerVariantDetail {
+  itemId: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourcePath: string;
+  entry: Record<string, unknown>;
+}
+
 interface McpServersState {
   servers: McpServer[];
   conflicts: HostIntegrationConflictItem[];
@@ -44,6 +52,10 @@ interface McpServersState {
   updateServer: (id: string, updates: Partial<McpServer>) => Promise<void>;
   toggleServer: (id: string, enabled: boolean) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
+  getServerVariant: (
+    id: string,
+    sourceId: string,
+  ) => Promise<McpServerVariantDetail>;
 }
 
 export const useMcpServersStore = create<McpServersState>((set, get) => ({
@@ -125,5 +137,12 @@ export const useMcpServersStore = create<McpServersState>((set, get) => ({
       set({ error: err instanceof Error ? err.message : String(err) });
       throw err;
     }
+  },
+
+  getServerVariant: async (id, sourceId) => {
+    const data = await api.get<{ variant: McpServerVariantDetail }>(
+      `/api/mcp-servers/${encodeURIComponent(id)}/variants/${encodeURIComponent(sourceId)}`,
+    );
+    return data.variant;
   },
 }));
