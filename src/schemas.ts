@@ -236,6 +236,17 @@ export const RegistrationConfigSchema = z.object({
   requireInviteCode: z.boolean(),
 });
 
+const HostIntegrationSourceSchema = z.object({
+  id: z.string().min(1).max(128),
+  kind: z.enum(['provider-default', 'custom']),
+  provider: z.enum(['anthropic', 'openai']).optional(),
+  label: z.string().min(1).max(64),
+  path: z.string().min(1).max(512),
+  enabled: z.boolean(),
+  skillsEnabled: z.boolean(),
+  mcpEnabled: z.boolean(),
+});
+
 export const SystemSettingsSchema = z.object({
   containerTimeout: z.number().int().min(60000).max(86400000).optional(),
   idleTimeout: z.number().int().min(60000).max(86400000).optional(),
@@ -280,6 +291,7 @@ export const SystemSettingsSchema = z.object({
   codexSdkBaseUrl: z.string().max(2000).optional(),
   anthropicSdkBaseUrl: z.string().max(2000).optional(),
   openaiSdkBaseUrl: z.string().max(2000).optional(),
+  hostIntegrationSources: z.array(HostIntegrationSourceSchema).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({

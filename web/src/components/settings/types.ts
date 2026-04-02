@@ -123,12 +123,62 @@ export interface SystemSettings {
   openaiUsageApiUrl: string;
   anthropicSdkBaseUrl: string;
   openaiSdkBaseUrl: string;
+  hostIntegrationSources: HostIntegrationSource[];
   defaultClaudeModel?: string;
   defaultCodexModel?: string;
   claudeUsageApiUrl?: string;
   codexUsageApiUrl?: string;
   claudeSdkBaseUrl?: string;
   codexSdkBaseUrl?: string;
+}
+
+export type HostIntegrationSourceKind = 'provider-default' | 'custom';
+export type HostIntegrationProvider = 'anthropic' | 'openai';
+export type HostIntegrationStatusType = 'ok' | 'missing' | 'unreadable' | 'invalid';
+
+export interface HostIntegrationSource {
+  id: string;
+  kind: HostIntegrationSourceKind;
+  provider?: HostIntegrationProvider;
+  label: string;
+  path: string;
+  enabled: boolean;
+  skillsEnabled: boolean;
+  mcpEnabled: boolean;
+}
+
+export interface HostIntegrationSourceStatus extends HostIntegrationSource {
+  status: HostIntegrationStatusType;
+  message: string | null;
+}
+
+export interface HostIntegrationSectionSnapshot {
+  lastSyncAt: string | null;
+  syncedCount: number;
+}
+
+export interface HostIntegrationsResponse {
+  sources: HostIntegrationSourceStatus[];
+  skills: HostIntegrationSectionSnapshot;
+  mcp: HostIntegrationSectionSnapshot;
+}
+
+export interface HostIntegrationSyncStats {
+  added: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+}
+
+export interface HostIntegrationSyncSectionResult {
+  total: number;
+  stats: HostIntegrationSyncStats;
+}
+
+export interface HostIntegrationsSyncResponse {
+  statuses: HostIntegrationSourceStatus[];
+  skills: HostIntegrationSyncSectionResult;
+  mcp: HostIntegrationSyncSectionResult;
 }
 
 export type SettingsTab = 'providers' | 'claude' | 'codex' | 'registration' | 'appearance' | 'system' | 'profile' | 'my-channels' | 'security' | 'groups' | 'memory' | 'skills' | 'mcp-servers' | 'agent-definitions' | 'users' | 'about' | 'bindings' | 'usage' | 'monitor';

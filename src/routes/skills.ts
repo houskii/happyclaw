@@ -3,12 +3,15 @@
 import { Hono } from 'hono';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import type { Variables } from '../web-context.js';
 import type { AuthUser } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { DATA_DIR } from '../config.js';
 import { getSystemSettings, saveSystemSettings, type SystemSettings } from '../runtime-config.js';
+import {
+  getSkillsHostSyncSnapshot,
+  syncHostIntegrationsForUser,
+} from '../host-integrations.js';
 import {
   parseFrontmatter,
   validateSkillId,
@@ -41,11 +44,6 @@ interface SkillDetail extends Skill {
   content: string;
 }
 
-interface HostSyncManifest {
-  syncedSkills: string[];
-  lastSyncAt: string;
-}
-
 interface SkillsManifest {
   skills: Record<
     string,
@@ -63,34 +61,8 @@ function getUserSkillsDir(userId: string): string {
   return path.join(DATA_DIR, 'skills', userId);
 }
 
-function getGlobalSkillsDir(): string {
-  return path.join(os.homedir(), '.claude', 'skills');
-}
-
 function getProjectSkillsDir(): string {
   return path.resolve(process.cwd(), 'container', 'skills');
-}
-
-function getHostSyncManifestPath(userId: string): string {
-  return path.join(DATA_DIR, 'skills', userId, '.host-sync.json');
-}
-
-function readHostSyncManifest(userId: string): HostSyncManifest {
-  try {
-    const data = fs.readFileSync(getHostSyncManifestPath(userId), 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return { syncedSkills: [], lastSyncAt: '' };
-  }
-}
-
-function writeHostSyncManifest(
-  userId: string,
-  manifest: HostSyncManifest,
-): void {
-  const manifestPath = getHostSyncManifestPath(userId);
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
 
 function getSkillsManifestPath(userId: string): string {
@@ -136,8 +108,8 @@ function discoverSkills(userId: string): Skill[] {
   const projectSkills = scanDirectory(getProjectSkillsDir(), 'project');
 
   // 读取 host sync manifest 标记同步来源
-  const hostManifest = readHostSyncManifest(userId);
-  const syncedSet = new Set(hostManifest.syncedSkills);
+  const hostSync = getSkillsHostSyncSnapshot(userId);
+  const syncedSet = new Set(Object.keys(hostSync.owners));
 
   // 读取 skills manifest 补充安装元数据
   const skillsManifest = readSkillsManifest(userId);
@@ -164,8 +136,7 @@ function getSkillDetail(skillId: string, userId: string): SkillDetail | null {
     { rootDir: getProjectSkillsDir(), source: 'project' },
   ];
 
-  const hostManifest = readHostSyncManifest(userId);
-  const syncedSet = new Set(hostManifest.syncedSkills);
+  const syncedSet = new Set(Object.keys(getSkillsHostSyncSnapshot(userId).owners));
   const skillsManifest = readSkillsManifest(userId);
 
   for (const { rootDir, source } of searchDirs) {
@@ -234,26 +205,6 @@ function getSkillDetail(skillId: string, userId: string): SkillDetail | null {
   return null;
 }
 
-/**
- * Copy a skill entry (directory or symlink target) to dest.
- * Resolves symlinks and copies the real content so the copy is self-contained.
- */
-function copySkillToUser(src: string, dest: string): void {
-  // Resolve symlink to get the real directory
-  let realSrc = src;
-  try {
-    const lstat = fs.lstatSync(src);
-    if (lstat.isSymbolicLink()) {
-      realSrc = fs.realpathSync(src);
-    }
-  } catch {
-    // use src as-is
-  }
-
-  fs.cpSync(realSrc, dest, { recursive: true });
-}
-
-
 // --- Routes ---
 
 skillsRoutes.get('/', authMiddleware, (c) => {
@@ -266,11 +217,11 @@ skillsRoutes.get('/', authMiddleware, (c) => {
 // Get sync status (last sync time + auto-sync config)
 skillsRoutes.get('/sync-status', authMiddleware, (c) => {
   const authUser = c.get('user') as AuthUser;
-  const manifest = readHostSyncManifest(authUser.id);
+  const sync = getSkillsHostSyncSnapshot(authUser.id);
   const settings = getSystemSettings();
   return c.json({
-    lastSyncAt: manifest.lastSyncAt || null,
-    syncedCount: manifest.syncedSkills.length,
+    lastSyncAt: sync.lastSyncAt,
+    syncedCount: Object.keys(sync.owners).length,
     autoSyncEnabled: settings.skillAutoSyncEnabled,
     autoSyncIntervalMinutes: settings.skillAutoSyncIntervalMinutes,
   });
@@ -408,85 +359,17 @@ skillsRoutes.delete('/:id', authMiddleware, async (c) => {
   return c.json({ success: true });
 });
 
-async function syncHostSkillsForUser(
+function syncHostSkillsForUser(
   userId: string,
-): Promise<{
+): {
   stats: { added: number; updated: number; deleted: number; skipped: number };
   total: number;
-}> {
-  const hostDir = getGlobalSkillsDir();
-  const userDir = getUserSkillsDir(userId);
-  fs.mkdirSync(userDir, { recursive: true });
-
-  const hostSkillNames: string[] = [];
-  if (fs.existsSync(hostDir)) {
-    for (const entry of fs.readdirSync(hostDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-      const skillDir = path.join(hostDir, entry.name);
-      try {
-        const realPath = fs.realpathSync(skillDir);
-        if (
-          fs.existsSync(path.join(realPath, 'SKILL.md')) ||
-          fs.existsSync(path.join(realPath, 'SKILL.md.disabled'))
-        ) {
-          hostSkillNames.push(entry.name);
-        }
-      } catch {
-        // skip broken symlinks
-      }
-    }
-  }
-
-  const manifest = readHostSyncManifest(userId);
-  const previouslySynced = new Set(manifest.syncedSkills);
-
-  const existingUserSkills = new Set<string>();
-  if (fs.existsSync(userDir)) {
-    for (const entry of fs.readdirSync(userDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) existingUserSkills.add(entry.name);
-    }
-  }
-
-  const stats = { added: 0, updated: 0, deleted: 0, skipped: 0 };
-  const newSyncedList: string[] = [];
-
-  for (const name of hostSkillNames) {
-    const isManuallyInstalled =
-      existingUserSkills.has(name) && !previouslySynced.has(name);
-    if (isManuallyInstalled) {
-      stats.skipped++;
-      continue;
-    }
-
-    const src = path.join(hostDir, name);
-    const dest = path.join(userDir, name);
-
-    if (existingUserSkills.has(name)) {
-      fs.rmSync(dest, { recursive: true, force: true });
-      copySkillToUser(src, dest);
-      stats.updated++;
-    } else {
-      copySkillToUser(src, dest);
-      stats.added++;
-    }
-    newSyncedList.push(name);
-  }
-
-  const hostSkillSet = new Set(hostSkillNames);
-  for (const name of previouslySynced) {
-    if (!hostSkillSet.has(name) && existingUserSkills.has(name)) {
-      const dest = path.join(userDir, name);
-      fs.rmSync(dest, { recursive: true, force: true });
-      stats.deleted++;
-    }
-  }
-
-  writeHostSyncManifest(userId, {
-    syncedSkills: newSyncedList,
-    lastSyncAt: new Date().toISOString(),
-  });
-
-  return { stats, total: hostSkillNames.length };
+} {
+  const result = syncHostIntegrationsForUser(userId);
+  return {
+    stats: result.skills.stats,
+    total: result.skills.total,
+  };
 }
 
 skillsRoutes.post('/sync-host', authMiddleware, async (c) => {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, RefreshCw, Server, Download } from 'lucide-react';
+import { Plus, RefreshCw, Server } from 'lucide-react';
 import { SearchInput } from '@/components/common';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SkeletonCardList } from '@/components/common/Skeletons';
@@ -7,32 +7,33 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useMcpServersStore } from '../stores/mcp-servers';
+import { useHostIntegrationsStore } from '../stores/host-integrations';
 import { useAuthStore } from '../stores/auth';
 import { McpServerCard } from '../components/mcp-servers/McpServerCard';
 import { McpServerDetail } from '../components/mcp-servers/McpServerDetail';
 import { AddMcpServerDialog } from '../components/mcp-servers/AddMcpServerDialog';
+import { HostIntegrationsPanel } from '../components/settings/HostIntegrationsPanel';
 
 export function McpServersPage() {
   const {
     servers,
     loading,
     error,
-    syncing,
     loadServers,
     addServer,
-    syncHostServers,
   } = useMcpServersStore();
+  const loadHostIntegrations = useHostIntegrationsStore((s) => s.load);
 
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadServers();
-  }, [loadServers]);
+    loadHostIntegrations();
+  }, [loadServers, loadHostIntegrations]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -52,20 +53,6 @@ export function McpServersPage() {
   const enabledCount = servers.filter((s) => s.enabled).length;
   const selectedServer = servers.find((s) => s.id === selectedId) || null;
 
-  const handleSync = async () => {
-    setSyncMessage(null);
-    try {
-      const result = await syncHostServers();
-      const { added, updated, deleted, skipped } = result;
-      setSyncMessage(
-        `同步完成：新增 ${added}，更新 ${updated}，删除 ${deleted}，跳过 ${skipped}`,
-      );
-      setTimeout(() => setSyncMessage(null), 5000);
-    } catch {
-      // error handled by store
-    }
-  };
-
   const handleAdd = async (server: Parameters<typeof addServer>[0]) => {
     await addServer(server);
   };
@@ -80,12 +67,6 @@ export function McpServersPage() {
             subtitle={`共 ${servers.length} 个${syncedServers.length > 0 ? `（含同步 ${syncedServers.length}）` : ''} · 启用 ${enabledCount}`}
             actions={
               <div className="flex items-center gap-3">
-                {isAdmin && (
-                  <Button variant="outline" onClick={handleSync} disabled={syncing}>
-                    <Download size={18} className={syncing ? 'animate-pulse' : ''} />
-                    {syncing ? '同步中...' : '同步宿主机'}
-                  </Button>
-                )}
                 <Button variant="outline" onClick={loadServers} disabled={loading}>
                   <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
                   刷新
@@ -99,15 +80,15 @@ export function McpServersPage() {
           />
         </div>
 
-        {/* Sync message toast */}
-        {syncMessage && (
-          <div className="mx-6 mt-4 p-3 bg-success-bg border border-success/20 rounded-lg text-sm text-success">
-            {syncMessage}
-          </div>
-        )}
-
         {/* Content */}
-        <div className="flex gap-6 p-4">
+        <div className="space-y-4 p-4">
+          <HostIntegrationsPanel
+            isAdmin={isAdmin}
+            target="mcp"
+            onSynced={loadServers}
+          />
+
+          <div className="flex gap-6">
           {/* Left list */}
           <div className="w-full lg:w-1/2 xl:w-2/5">
             <div className="mb-4">
@@ -178,6 +159,7 @@ export function McpServersPage() {
           {/* Right detail (desktop) */}
           <div className="hidden lg:block lg:w-1/2 xl:w-3/5">
             <McpServerDetail server={selectedServer} onDeleted={() => setSelectedId(null)} />
+          </div>
           </div>
         </div>
 

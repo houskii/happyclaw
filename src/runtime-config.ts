@@ -3413,6 +3413,7 @@ export interface SystemSettings {
   // Skills auto-sync
   skillAutoSyncEnabled: boolean;
   skillAutoSyncIntervalMinutes: number;
+  hostIntegrationSources: HostIntegrationSource[];
   // Billing
   billingEnabled: boolean;
   billingMode: 'wallet_first';
@@ -3441,6 +3442,115 @@ export interface SystemSettings {
   codexSdkBaseUrl: string;
 }
 
+export interface HostIntegrationSource {
+  id: string;
+  kind: 'provider-default' | 'custom';
+  provider?: 'anthropic' | 'openai';
+  label: string;
+  path: string;
+  enabled: boolean;
+  skillsEnabled: boolean;
+  mcpEnabled: boolean;
+}
+
+export const DEFAULT_HOST_INTEGRATION_SOURCES: HostIntegrationSource[] = [
+  {
+    id: 'anthropic-default',
+    kind: 'provider-default',
+    provider: 'anthropic',
+    label: 'Anthropic',
+    path: '~/.claude',
+    enabled: true,
+    skillsEnabled: true,
+    mcpEnabled: true,
+  },
+  {
+    id: 'openai-default',
+    kind: 'provider-default',
+    provider: 'openai',
+    label: 'OpenAI',
+    path: '~/.codex',
+    enabled: true,
+    skillsEnabled: true,
+    mcpEnabled: true,
+  },
+];
+
+function normalizeHostIntegrationSource(
+  input: unknown,
+): HostIntegrationSource | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const raw = input as Record<string, unknown>;
+  const kind = raw.kind === 'custom' ? 'custom' : 'provider-default';
+  const provider =
+    raw.provider === 'openai'
+      ? 'openai'
+      : raw.provider === 'anthropic'
+        ? 'anthropic'
+        : undefined;
+  const id =
+    typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined;
+  const label =
+    typeof raw.label === 'string' && raw.label.trim()
+      ? raw.label.trim()
+      : undefined;
+  const sourcePath =
+    typeof raw.path === 'string' && raw.path.trim()
+      ? raw.path.trim()
+      : undefined;
+
+  if (!id || !label || !sourcePath) return null;
+  if (kind === 'provider-default' && !provider) return null;
+
+  return {
+    id,
+    kind,
+    ...(provider ? { provider } : {}),
+    label,
+    path: sourcePath,
+    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
+    skillsEnabled:
+      typeof raw.skillsEnabled === 'boolean' ? raw.skillsEnabled : true,
+    mcpEnabled: typeof raw.mcpEnabled === 'boolean' ? raw.mcpEnabled : true,
+  };
+}
+
+function normalizeHostIntegrationSources(
+  input: unknown,
+): HostIntegrationSource[] {
+  const customById = new Map<string, HostIntegrationSource>();
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const normalized = normalizeHostIntegrationSource(item);
+      if (!normalized) continue;
+      if (normalized.kind === 'custom') {
+        customById.set(normalized.id, normalized);
+      }
+    }
+  }
+
+  const providerDefaults = DEFAULT_HOST_INTEGRATION_SOURCES.map((source) => {
+    const match = Array.isArray(input)
+      ? input
+          .map((item) => normalizeHostIntegrationSource(item))
+          .find(
+            (item) =>
+              item &&
+              item.kind === 'provider-default' &&
+              item.provider === source.provider,
+          )
+      : null;
+    return {
+      ...source,
+      enabled: match?.enabled ?? source.enabled,
+      skillsEnabled: match?.skillsEnabled ?? source.skillsEnabled,
+      mcpEnabled: match?.mcpEnabled ?? source.mcpEnabled,
+    };
+  });
+
+  return [...providerDefaults, ...Array.from(customById.values())];
+}
+
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   containerTimeout: 1800000,
   idleTimeout: 1500000,
@@ -3453,6 +3563,7 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   scriptTimeout: 60000,
   skillAutoSyncEnabled: false,
   skillAutoSyncIntervalMinutes: 10,
+  hostIntegrationSources: DEFAULT_HOST_INTEGRATION_SOURCES,
   billingEnabled: false,
   billingMode: 'wallet_first',
   billingMinStartBalanceUsd: 0.01,
@@ -3547,6 +3658,9 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       raw.skillAutoSyncIntervalMinutes >= 1
         ? raw.skillAutoSyncIntervalMinutes
         : DEFAULT_SYSTEM_SETTINGS.skillAutoSyncIntervalMinutes,
+    hostIntegrationSources: normalizeHostIntegrationSources(
+      raw.hostIntegrationSources,
+    ),
     billingEnabled:
       typeof raw.billingEnabled === 'boolean'
         ? raw.billingEnabled
@@ -3676,6 +3790,7 @@ function buildEnvFallbackSettings(): SystemSettings {
       process.env.SKILL_AUTO_SYNC_INTERVAL_MINUTES,
       DEFAULT_SYSTEM_SETTINGS.skillAutoSyncIntervalMinutes,
     ),
+    hostIntegrationSources: normalizeHostIntegrationSources(undefined),
     billingEnabled:
       process.env.BILLING_ENABLED === 'true' ||
       DEFAULT_SYSTEM_SETTINGS.billingEnabled,
@@ -3809,6 +3924,9 @@ export function saveSystemSettings(
     merged.skillAutoSyncIntervalMinutes = 1;
   if (merged.skillAutoSyncIntervalMinutes > 1440)
     merged.skillAutoSyncIntervalMinutes = 1440; // max 24h
+  merged.hostIntegrationSources = normalizeHostIntegrationSources(
+    merged.hostIntegrationSources,
+  );
   merged.billingMode = 'wallet_first';
   if (merged.billingMinStartBalanceUsd < 0)
     merged.billingMinStartBalanceUsd =

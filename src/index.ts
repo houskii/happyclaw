@@ -173,7 +173,7 @@ import {
   getActiveStreamingTexts,
   clearStreamingSnapshot,
 } from './web.js';
-import { syncHostSkillsForUser } from './routes/skills.js';
+import { syncHostIntegrationsForUser } from './host-integrations.js';
 import { streamingBlocksManager } from './streaming-blocks.js';
 import { verifyPairingCode } from './telegram-pairing.js';
 import { sdkQuery } from './sdk-query.js';
@@ -7552,7 +7552,7 @@ async function main(): Promise<void> {
     24 * 60 * 60 * 1000,
   );
 
-  // Skills auto-sync: periodically sync host skills to all admin users
+  // Host integrations auto-sync: periodically sync host skills and MCP servers to all admin users
   let skillAutoSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   function startSkillAutoSync(): void {
@@ -7563,7 +7563,7 @@ async function main(): Promise<void> {
     const intervalMs = settings.skillAutoSyncIntervalMinutes * 60 * 1000;
     logger.info(
       { intervalMinutes: settings.skillAutoSyncIntervalMinutes },
-      'Starting skill auto-sync timer',
+      'Starting host integration auto-sync timer',
     );
 
     const runSync = async () => {
@@ -7580,28 +7580,35 @@ async function main(): Promise<void> {
         });
         for (const admin of adminUsers) {
           try {
-            const result = await syncHostSkillsForUser(admin.id);
-            const { added, updated, deleted } = result.stats;
-            if (added > 0 || updated > 0 || deleted > 0) {
+            const result = syncHostIntegrationsForUser(admin.id);
+            const skillChanges =
+              result.skills.stats.added +
+              result.skills.stats.updated +
+              result.skills.stats.deleted;
+            const mcpChanges =
+              result.mcp.stats.added +
+              result.mcp.stats.updated +
+              result.mcp.stats.deleted;
+            if (skillChanges > 0 || mcpChanges > 0) {
               logger.info(
                 {
                   userId: admin.id,
                   username: admin.username,
-                  ...result.stats,
-                  total: result.total,
+                  skills: result.skills,
+                  mcp: result.mcp,
                 },
-                'Skill auto-sync completed with changes',
+                'Host integration auto-sync completed with changes',
               );
             }
           } catch (err) {
             logger.warn(
               { err, userId: admin.id },
-              'Skill auto-sync failed for user',
+              'Host integration auto-sync failed for user',
             );
           }
         }
       } catch (err) {
-        logger.error({ err }, 'Skill auto-sync failed');
+        logger.error({ err }, 'Host integration auto-sync failed');
       }
     };
 

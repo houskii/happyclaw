@@ -3,12 +3,12 @@
 import { Hono } from 'hono';
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
 import type { Variables } from '../web-context.js';
 import type { AuthUser } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { DATA_DIR } from '../config.js';
 import { checkMcpServerLimit } from '../billing.js';
+import { syncHostIntegrationsForUser } from '../host-integrations.js';
 
 // --- Types ---
 
@@ -32,11 +32,6 @@ interface McpServersFile {
   servers: Record<string, McpServerEntry>;
 }
 
-interface HostSyncManifest {
-  syncedServers: string[];
-  lastSyncAt: string;
-}
-
 // --- Utility Functions ---
 
 function getUserMcpServersDir(userId: string): string {
@@ -45,10 +40,6 @@ function getUserMcpServersDir(userId: string): string {
 
 function getServersFilePath(userId: string): string {
   return path.join(getUserMcpServersDir(userId), 'servers.json');
-}
-
-function getHostSyncManifestPath(userId: string): string {
-  return path.join(getUserMcpServersDir(userId), '.host-sync.json');
 }
 
 function validateServerId(id: string): boolean {
@@ -71,27 +62,6 @@ async function writeMcpServersFile(
   const dir = getUserMcpServersDir(userId);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(getServersFilePath(userId), JSON.stringify(data, null, 2));
-}
-
-async function readHostSyncManifest(userId: string): Promise<HostSyncManifest> {
-  try {
-    const data = await fs.readFile(getHostSyncManifestPath(userId), 'utf-8');
-    return JSON.parse(data);
-  } catch {
-    return { syncedServers: [], lastSyncAt: '' };
-  }
-}
-
-async function writeHostSyncManifest(
-  userId: string,
-  manifest: HostSyncManifest,
-): Promise<void> {
-  const dir = getUserMcpServersDir(userId);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(
-    getHostSyncManifestPath(userId),
-    JSON.stringify(manifest, null, 2),
-  );
 }
 
 // --- Routes ---
@@ -303,124 +273,14 @@ mcpServersRoutes.delete('/:id', authMiddleware, async (c) => {
 });
 
 // POST /sync-host — sync from host MCP configs (admin only)
-// Reads from both ~/.claude/settings.json and ~/.claude.json
 mcpServersRoutes.post('/sync-host', authMiddleware, async (c) => {
   const authUser = c.get('user') as AuthUser;
   if (authUser.role !== 'admin') {
     return c.json({ error: 'Only admin can sync host MCP servers' }, 403);
   }
 
-  // Read MCP servers from both config file locations
-  let hostServers: Record<string, any> = {};
-
-  // Source 1: ~/.claude/settings.json
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-  try {
-    const raw = await fs.readFile(settingsPath, 'utf-8');
-    const settings = JSON.parse(raw);
-    if (settings.mcpServers) {
-      hostServers = { ...hostServers, ...settings.mcpServers };
-    }
-  } catch {
-    // File may not exist, that's OK
-  }
-
-  // Source 2: ~/.claude.json (global Claude Code config, stores per-user MCP settings)
-  // When both files define the same server ID, ~/.claude.json wins because it's
-  // the primary user-facing config file where Claude Code persists MCP settings.
-  const globalConfigPath = path.join(os.homedir(), '.claude.json');
-  try {
-    const raw = await fs.readFile(globalConfigPath, 'utf-8');
-    const config = JSON.parse(raw);
-    if (config.mcpServers) {
-      hostServers = { ...hostServers, ...config.mcpServers };
-    }
-  } catch {
-    // File may not exist, that's OK
-  }
-
-  if (Object.keys(hostServers).length === 0) {
-    return c.json({
-      added: 0,
-      updated: 0,
-      deleted: 0,
-      skipped: 0,
-      message: 'No MCP servers found in host config files',
-    });
-  }
-
-  const file = await readMcpServersFile(authUser.id);
-  const manifest = await readHostSyncManifest(authUser.id);
-  const previouslySynced = new Set(manifest.syncedServers);
-  const hostServerIds = new Set(Object.keys(hostServers));
-
-  const stats = { added: 0, updated: 0, deleted: 0, skipped: 0 };
-  const newSyncedList: string[] = [];
-
-  // Add/update from host
-  for (const [id, hostEntry] of Object.entries(hostServers) as [
-    string,
-    any,
-  ][]) {
-    if (!validateServerId(id)) {
-      stats.skipped++;
-      continue;
-    }
-
-    const existsInUser = !!file.servers[id];
-    const wasSynced = previouslySynced.has(id);
-
-    // Skip manually added entries
-    if (existsInUser && !wasSynced) {
-      stats.skipped++;
-      continue;
-    }
-
-    const isHttpType = hostEntry.type === 'http' || hostEntry.type === 'sse';
-
-    const entry: McpServerEntry = {
-      enabled: true,
-      syncedFromHost: true,
-      addedAt: existsInUser
-        ? file.servers[id].addedAt || new Date().toISOString()
-        : new Date().toISOString(),
-    };
-
-    if (isHttpType) {
-      entry.type = hostEntry.type;
-      entry.url = hostEntry.url || '';
-      if (hostEntry.headers) entry.headers = hostEntry.headers;
-    } else {
-      entry.command = hostEntry.command || '';
-      if (hostEntry.args) entry.args = hostEntry.args;
-      if (hostEntry.env) entry.env = hostEntry.env;
-    }
-
-    if (existsInUser) {
-      stats.updated++;
-    } else {
-      stats.added++;
-    }
-
-    file.servers[id] = entry;
-    newSyncedList.push(id);
-  }
-
-  // Delete servers that were synced before but no longer on host
-  for (const id of previouslySynced) {
-    if (!hostServerIds.has(id) && file.servers[id]?.syncedFromHost) {
-      delete file.servers[id];
-      stats.deleted++;
-    }
-  }
-
-  await writeMcpServersFile(authUser.id, file);
-  await writeHostSyncManifest(authUser.id, {
-    syncedServers: newSyncedList,
-    lastSyncAt: new Date().toISOString(),
-  });
-
-  return c.json(stats);
+  const result = syncHostIntegrationsForUser(authUser.id);
+  return c.json(result.mcp.stats);
 });
 
 export { getUserMcpServersDir, readMcpServersFile };

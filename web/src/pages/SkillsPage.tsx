@@ -7,8 +7,11 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useSkillsStore } from '../stores/skills';
+import { useHostIntegrationsStore } from '../stores/host-integrations';
+import { useAuthStore } from '../stores/auth';
 import { SkillCard } from '../components/skills/SkillCard';
 import { SkillDetail } from '../components/skills/SkillDetail';
+import { HostIntegrationsPanel } from '../components/settings/HostIntegrationsPanel';
 
 export function SkillsPage() {
   const {
@@ -17,13 +20,16 @@ export function SkillsPage() {
     error,
     loadSkills,
   } = useSkillsStore();
+  const loadHostIntegrations = useHostIntegrationsStore((s) => s.load);
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadSkills();
-  }, [loadSkills]);
+    loadHostIntegrations();
+  }, [loadSkills, loadHostIntegrations]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -60,7 +66,14 @@ export function SkillsPage() {
           />
         </div>
         {/* Content */}
-        <div className="flex gap-6 p-4">
+        <div className="space-y-4 p-4">
+          <HostIntegrationsPanel
+            isAdmin={isAdmin}
+            target="skills"
+            onSynced={loadSkills}
+          />
+
+          <div className="flex gap-6">
           {/* 左侧列表 */}
           <div className="w-full lg:w-1/2 xl:w-2/5">
             <div className="mb-4">
@@ -148,6 +161,7 @@ export function SkillsPage() {
           {/* 右侧详情（桌面端） */}
           <div className="hidden lg:block lg:w-1/2 xl:w-3/5">
             <SkillDetail skillId={selectedId} onDeleted={() => setSelectedId(null)} />
+          </div>
           </div>
         </div>
 
