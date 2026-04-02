@@ -834,8 +834,8 @@ export function ChatView({ groupJid, onBack, headerLeft }: ChatViewProps) {
         onConfirm={handleResetSession}
         title="清除上下文"
         message={resetAgentId
-          ? '将清除该子对话的 Claude 会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
-          : '将清除 Claude 会话上下文并停止运行中的工作区进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          ? '将清除该子对话的 Agent 会话上下文，下次发送消息时将开始全新会话。聊天记录不受影响。'
+          : '将清除当前工作区的 Agent 会话上下文并停止运行中的进程，下次发送消息时将开始全新会话。聊天记录不受影响。'
         }
         confirmText="清除"
         confirmVariant="danger"

@@ -200,7 +200,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
                   </datalist>
                 )}
                 {llmProvider === 'openai' && codexModelsLoading && (
-                  <p className="mt-1 text-xs text-muted-foreground">正在加载 Codex 模型列表…</p>
+                  <p className="mt-1 text-xs text-muted-foreground">正在加载 OpenAI / Codex 模型列表…</p>
                 )}
               </div>
 
