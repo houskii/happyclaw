@@ -2831,7 +2831,7 @@ configRoutes.post('/user-im/memory/import-legacy', authMiddleware, (c) => {
   }
 });
 
-// ─── Local Claude Code detection ──────────────────────────────────
+// ─── Local Anthropic credential detection ─────────────────────────
 
 configRoutes.get(
   '/claude/detect-local',
@@ -2849,7 +2849,7 @@ configRoutes.post(
   (c) => {
     const creds = importLocalClaudeCredentials();
     if (!creds) {
-      return c.json({ error: '未检测到本机 Claude Code 登录凭据' }, 404);
+      return c.json({ error: '未检测到本机 Anthropic 登录凭据' }, 404);
     }
 
     const actor = (c.get('user') as AuthUser).username;
@@ -2878,7 +2878,7 @@ configRoutes.post(
         err instanceof Error
           ? err.message
           : 'Failed to import local credentials';
-      logger.warn({ err }, 'Failed to import local Claude Code credentials');
+      logger.warn({ err }, 'Failed to import local Anthropic credentials');
       return c.json({ error: message }, 500);
     }
   },

@@ -160,7 +160,7 @@ usage.get('/subscription', async (c) => {
   if (!token) {
     return c.json({
       error: 'no_credentials',
-      message: 'OAuth 凭据不可用，请先登录 Claude Code',
+      message: 'Anthropic 通道 OAuth 凭据不可用，请先完成登录',
       subscription: null,
       cached: false,
       cached_at: new Date().toISOString(),
@@ -193,7 +193,7 @@ usage.get('/subscription', async (c) => {
         error: isOAuthUnsupported ? 'oauth_unsupported' : 'token_expired',
         message: isOAuthUnsupported
           ? 'Anthropic 已暂停 OAuth 对此 API 的访问，订阅配额暂不可用'
-          : 'OAuth Token 已过期，请重新登录 Claude Code',
+          : 'Anthropic 通道 OAuth Token 已过期，请重新登录',
         subscription: null,
         cached: false,
         cached_at: new Date().toISOString(),

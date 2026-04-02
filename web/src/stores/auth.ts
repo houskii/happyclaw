@@ -41,7 +41,10 @@ export interface AppearanceConfig {
 
 export interface SetupStatus {
   needsSetup: boolean;
+  anthropicConfigured?: boolean;
+  openaiConfigured?: boolean;
   claudeConfigured: boolean;
+  codexConfigured?: boolean;
   providerConfigured?: boolean;
   feishuConfigured: boolean;
 }

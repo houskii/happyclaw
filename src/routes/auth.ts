@@ -156,7 +156,10 @@ function buildSetupStatus() {
 
   return {
     needsSetup: !providerConfigured,
+    anthropicConfigured: claudeConfigured,
+    openaiConfigured: codexConfigured,
     claudeConfigured,
+    codexConfigured,
     providerConfigured,
     feishuConfigured,
   };
