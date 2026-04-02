@@ -134,6 +134,52 @@ type ProviderOverview = {
   status: Record<string, unknown>;
 };
 
+function toSystemSettingsResponse(settings = getSystemSettings()) {
+  return {
+    ...settings,
+    defaultAnthropicModel: settings.defaultClaudeModel,
+    defaultOpenaiModel: settings.defaultCodexModel,
+    anthropicUsageApiUrl: settings.claudeUsageApiUrl,
+    openaiUsageApiUrl: settings.codexUsageApiUrl,
+    anthropicSdkBaseUrl: settings.claudeSdkBaseUrl,
+    openaiSdkBaseUrl: settings.codexSdkBaseUrl,
+  };
+}
+
+function normalizeSystemSettingsInput(
+  payload: Record<string, unknown>,
+): Parameters<typeof saveSystemSettings>[0] {
+  const normalized: Record<string, unknown> = { ...payload };
+
+  if (typeof payload.defaultAnthropicModel === 'string') {
+    normalized.defaultClaudeModel = payload.defaultAnthropicModel;
+  }
+  if (typeof payload.defaultOpenaiModel === 'string') {
+    normalized.defaultCodexModel = payload.defaultOpenaiModel;
+  }
+  if (typeof payload.anthropicUsageApiUrl === 'string') {
+    normalized.claudeUsageApiUrl = payload.anthropicUsageApiUrl;
+  }
+  if (typeof payload.openaiUsageApiUrl === 'string') {
+    normalized.codexUsageApiUrl = payload.openaiUsageApiUrl;
+  }
+  if (typeof payload.anthropicSdkBaseUrl === 'string') {
+    normalized.claudeSdkBaseUrl = payload.anthropicSdkBaseUrl;
+  }
+  if (typeof payload.openaiSdkBaseUrl === 'string') {
+    normalized.codexSdkBaseUrl = payload.openaiSdkBaseUrl;
+  }
+
+  delete normalized.defaultAnthropicModel;
+  delete normalized.defaultOpenaiModel;
+  delete normalized.anthropicUsageApiUrl;
+  delete normalized.openaiUsageApiUrl;
+  delete normalized.anthropicSdkBaseUrl;
+  delete normalized.openaiSdkBaseUrl;
+
+  return normalized;
+}
+
 function buildProviderOverview(
   id: 'claude' | 'codex',
   settings = getSystemSettings(),
@@ -1525,7 +1571,7 @@ configRoutes.get('/appearance/public', (c) => {
 
 configRoutes.get('/system', authMiddleware, systemConfigMiddleware, (c) => {
   try {
-    return c.json(getSystemSettings());
+    return c.json(toSystemSettingsResponse());
   } catch (err) {
     logger.error({ err }, 'Failed to load system settings');
     return c.json({ error: 'Failed to load system settings' }, 500);
@@ -1547,9 +1593,11 @@ configRoutes.put(
     }
 
     try {
-      const saved = saveSystemSettings(validation.data);
+      const saved = saveSystemSettings(
+        normalizeSystemSettingsInput(validation.data as Record<string, unknown>),
+      );
       clearBillingEnabledCache();
-      return c.json(saved);
+      return c.json(toSystemSettingsResponse(saved));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Invalid system settings payload';

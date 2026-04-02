@@ -117,12 +117,18 @@ export interface SystemSettings {
   traceRetentionDays: number;
   webPublicUrl: string;
   defaultLlmProvider: 'claude' | 'openai';
-  defaultClaudeModel: string;
-  defaultCodexModel: string;
-  claudeUsageApiUrl: string;
-  codexUsageApiUrl: string;
-  claudeSdkBaseUrl: string;
-  codexSdkBaseUrl: string;
+  defaultAnthropicModel: string;
+  defaultOpenaiModel: string;
+  anthropicUsageApiUrl: string;
+  openaiUsageApiUrl: string;
+  anthropicSdkBaseUrl: string;
+  openaiSdkBaseUrl: string;
+  defaultClaudeModel?: string;
+  defaultCodexModel?: string;
+  claudeUsageApiUrl?: string;
+  codexUsageApiUrl?: string;
+  claudeSdkBaseUrl?: string;
+  codexSdkBaseUrl?: string;
 }
 
 export type SettingsTab = 'providers' | 'claude' | 'codex' | 'registration' | 'appearance' | 'system' | 'profile' | 'my-channels' | 'security' | 'groups' | 'memory' | 'skills' | 'mcp-servers' | 'agent-definitions' | 'users' | 'about' | 'bindings' | 'usage' | 'monitor';

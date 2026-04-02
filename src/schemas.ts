@@ -270,10 +270,16 @@ export const SystemSettingsSchema = z.object({
   defaultLlmProvider: z.enum(['claude', 'openai']).optional(),
   defaultClaudeModel: z.string().max(100).optional(),
   defaultCodexModel: z.string().max(100).optional(),
+  defaultAnthropicModel: z.string().max(100).optional(),
+  defaultOpenaiModel: z.string().max(100).optional(),
   claudeUsageApiUrl: z.string().max(2000).optional(),
   codexUsageApiUrl: z.string().max(2000).optional(),
+  anthropicUsageApiUrl: z.string().max(2000).optional(),
+  openaiUsageApiUrl: z.string().max(2000).optional(),
   claudeSdkBaseUrl: z.string().max(2000).optional(),
   codexSdkBaseUrl: z.string().max(2000).optional(),
+  anthropicSdkBaseUrl: z.string().max(2000).optional(),
+  openaiSdkBaseUrl: z.string().max(2000).optional(),
 });
 
 export const AppearanceConfigSchema = z.object({

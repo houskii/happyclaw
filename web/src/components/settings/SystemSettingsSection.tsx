@@ -139,12 +139,12 @@ export function SystemSettingsSection() {
   const [billingCurrencyRate, setBillingCurrencyRate] = useState(1);
   const [webPublicUrl, setWebPublicUrl] = useState('');
   const [defaultLlmProvider, setDefaultLlmProvider] = useState<'claude' | 'openai'>('claude');
-  const [defaultClaudeModel, setDefaultClaudeModel] = useState('');
-  const [defaultCodexModel, setDefaultCodexModel] = useState('');
-  const [claudeUsageApiUrl, setClaudeUsageApiUrl] = useState('');
-  const [codexUsageApiUrl, setCodexUsageApiUrl] = useState('');
-  const [claudeSdkBaseUrl, setClaudeSdkBaseUrl] = useState('');
-  const [codexSdkBaseUrl, setCodexSdkBaseUrl] = useState('');
+  const [defaultAnthropicModel, setDefaultAnthropicModel] = useState('');
+  const [defaultOpenaiModel, setDefaultOpenaiModel] = useState('');
+  const [anthropicUsageApiUrl, setAnthropicUsageApiUrl] = useState('');
+  const [openaiUsageApiUrl, setOpenaiUsageApiUrl] = useState('');
+  const [anthropicSdkBaseUrl, setAnthropicSdkBaseUrl] = useState('');
+  const [openaiSdkBaseUrl, setOpenaiSdkBaseUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -171,12 +171,12 @@ export function SystemSettingsSection() {
         setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
         setWebPublicUrl(data.webPublicUrl ?? '');
         setDefaultLlmProvider(data.defaultLlmProvider ?? 'claude');
-        setDefaultClaudeModel(data.defaultClaudeModel ?? '');
-        setDefaultCodexModel(data.defaultCodexModel ?? '');
-        setClaudeUsageApiUrl(data.claudeUsageApiUrl ?? '');
-        setCodexUsageApiUrl(data.codexUsageApiUrl ?? '');
-        setClaudeSdkBaseUrl(data.claudeSdkBaseUrl ?? '');
-        setCodexSdkBaseUrl(data.codexSdkBaseUrl ?? '');
+        setDefaultAnthropicModel(data.defaultAnthropicModel ?? data.defaultClaudeModel ?? '');
+        setDefaultOpenaiModel(data.defaultOpenaiModel ?? data.defaultCodexModel ?? '');
+        setAnthropicUsageApiUrl(data.anthropicUsageApiUrl ?? data.claudeUsageApiUrl ?? '');
+        setOpenaiUsageApiUrl(data.openaiUsageApiUrl ?? data.codexUsageApiUrl ?? '');
+        setAnthropicSdkBaseUrl(data.anthropicSdkBaseUrl ?? data.claudeSdkBaseUrl ?? '');
+        setOpenaiSdkBaseUrl(data.openaiSdkBaseUrl ?? data.codexSdkBaseUrl ?? '');
       } catch (err) {
         toast.error(getErrorMessage(err, '加载系统参数失败'));
       } finally {
@@ -223,12 +223,12 @@ export function SystemSettingsSection() {
         billingCurrencyRate,
         webPublicUrl,
         defaultLlmProvider,
-        defaultClaudeModel,
-        defaultCodexModel,
-        claudeUsageApiUrl,
-        codexUsageApiUrl,
-        claudeSdkBaseUrl,
-        codexSdkBaseUrl,
+        defaultAnthropicModel,
+        defaultOpenaiModel,
+        anthropicUsageApiUrl,
+        openaiUsageApiUrl,
+        anthropicSdkBaseUrl,
+        openaiSdkBaseUrl,
       };
       for (const f of fields) {
         const val = displayValues[f.key];
@@ -249,12 +249,12 @@ export function SystemSettingsSection() {
       setBillingCurrencyRate(data.billingCurrencyRate ?? 1);
       setWebPublicUrl(data.webPublicUrl ?? '');
       setDefaultLlmProvider(data.defaultLlmProvider ?? 'claude');
-      setDefaultClaudeModel(data.defaultClaudeModel ?? '');
-      setDefaultCodexModel(data.defaultCodexModel ?? '');
-      setClaudeUsageApiUrl(data.claudeUsageApiUrl ?? '');
-      setCodexUsageApiUrl(data.codexUsageApiUrl ?? '');
-      setClaudeSdkBaseUrl(data.claudeSdkBaseUrl ?? '');
-      setCodexSdkBaseUrl(data.codexSdkBaseUrl ?? '');
+      setDefaultAnthropicModel(data.defaultAnthropicModel ?? data.defaultClaudeModel ?? '');
+      setDefaultOpenaiModel(data.defaultOpenaiModel ?? data.defaultCodexModel ?? '');
+      setAnthropicUsageApiUrl(data.anthropicUsageApiUrl ?? data.claudeUsageApiUrl ?? '');
+      setOpenaiUsageApiUrl(data.openaiUsageApiUrl ?? data.codexUsageApiUrl ?? '');
+      setAnthropicSdkBaseUrl(data.anthropicSdkBaseUrl ?? data.claudeSdkBaseUrl ?? '');
+      setOpenaiSdkBaseUrl(data.openaiSdkBaseUrl ?? data.codexSdkBaseUrl ?? '');
       // 刷新计费状态，更新导航栏可见性
       loadBillingStatus();
       toast.success('系统参数已保存，新参数将对后续启动的容器/进程生效');
@@ -477,8 +477,8 @@ export function SystemSettingsSection() {
           </label>
           <Input
             type="text"
-            value={defaultClaudeModel}
-            onChange={(e) => setDefaultClaudeModel(e.target.value)}
+            value={defaultAnthropicModel}
+            onChange={(e) => setDefaultAnthropicModel(e.target.value)}
             placeholder="opus / sonnet / haiku 或完整模型 ID"
             className="max-w-md font-mono"
             list="sys-anthropic-model-presets"
@@ -498,8 +498,8 @@ export function SystemSettingsSection() {
           </label>
           <Input
             type="text"
-            value={defaultCodexModel}
-            onChange={(e) => setDefaultCodexModel(e.target.value)}
+            value={defaultOpenaiModel}
+            onChange={(e) => setDefaultOpenaiModel(e.target.value)}
             placeholder="gpt-5.4 / gpt-5.3 / 自定义模型 ID"
             className="max-w-md font-mono"
           />
@@ -513,19 +513,19 @@ export function SystemSettingsSection() {
         </p>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">Anthropic 用量 API</label>
-          <Input value={claudeUsageApiUrl} onChange={(e) => setClaudeUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+          <Input value={anthropicUsageApiUrl} onChange={(e) => setAnthropicUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">OpenAI / Codex 用量 API</label>
-          <Input value={codexUsageApiUrl} onChange={(e) => setCodexUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+          <Input value={openaiUsageApiUrl} onChange={(e) => setOpenaiUsageApiUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">Anthropic SDK Base URL</label>
-          <Input value={claudeSdkBaseUrl} onChange={(e) => setClaudeSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+          <Input value={anthropicSdkBaseUrl} onChange={(e) => setAnthropicSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">OpenAI / Codex SDK Base URL</label>
-          <Input value={codexSdkBaseUrl} onChange={(e) => setCodexSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
+          <Input value={openaiSdkBaseUrl} onChange={(e) => setOpenaiSdkBaseUrl(e.target.value)} placeholder="https://..." className="max-w-2xl font-mono" />
         </div>
       </div>
       <div>

@@ -36,6 +36,8 @@ import { useCodexModels } from '../../hooks/useCodexModels';
 
 interface SystemDefaults {
   defaultLlmProvider?: 'claude' | 'openai';
+  defaultAnthropicModel?: string;
+  defaultOpenaiModel?: string;
   defaultClaudeModel?: string;
   defaultCodexModel?: string;
 }
@@ -61,6 +63,8 @@ export function CreateContainerDialog({
   const [initGitUrl, setInitGitUrl] = useState('');
   const [systemDefaults, setSystemDefaults] = useState<SystemDefaults>({
     defaultLlmProvider: 'claude',
+    defaultAnthropicModel: '',
+    defaultOpenaiModel: '',
     defaultClaudeModel: '',
     defaultCodexModel: '',
   });
@@ -79,17 +83,17 @@ export function CreateContainerDialog({
 
   const applyDefaults = (defaults?: SystemDefaults) => {
     const provider = defaults?.defaultLlmProvider ?? 'claude';
+    const anthropicDefault = defaults?.defaultAnthropicModel ?? defaults?.defaultClaudeModel ?? '';
+    const openaiDefault = defaults?.defaultOpenaiModel ?? defaults?.defaultCodexModel ?? '';
     setSystemDefaults({
       defaultLlmProvider: provider,
-      defaultClaudeModel: defaults?.defaultClaudeModel ?? '',
-      defaultCodexModel: defaults?.defaultCodexModel ?? '',
+      defaultAnthropicModel: anthropicDefault,
+      defaultOpenaiModel: openaiDefault,
+      defaultClaudeModel: defaults?.defaultClaudeModel ?? anthropicDefault,
+      defaultCodexModel: defaults?.defaultCodexModel ?? openaiDefault,
     });
     setLlmProvider(provider);
-    setModel(
-      provider === 'openai'
-        ? defaults?.defaultCodexModel ?? ''
-        : defaults?.defaultClaudeModel ?? '',
-    );
+    setModel(provider === 'openai' ? openaiDefault : anthropicDefault);
     setThinkingEffort('default');
     setContextCompression('');
     setKnowledgeExtraction(false);
@@ -138,11 +142,13 @@ export function CreateContainerDialog({
 
   useEffect(() => {
     if (!defaultsLoaded) return;
-    const claudeDefault = systemDefaults.defaultClaudeModel ?? '';
-    const codexDefault = systemDefaults.defaultCodexModel ?? '';
-    const nextDefault = llmProvider === 'openai' ? codexDefault : claudeDefault;
+    const anthropicDefault =
+      systemDefaults.defaultAnthropicModel ?? systemDefaults.defaultClaudeModel ?? '';
+    const openaiDefault =
+      systemDefaults.defaultOpenaiModel ?? systemDefaults.defaultCodexModel ?? '';
+    const nextDefault = llmProvider === 'openai' ? openaiDefault : anthropicDefault;
 
-    if (!model.trim() || model === claudeDefault || model === codexDefault) {
+    if (!model.trim() || model === anthropicDefault || model === openaiDefault) {
       setModel(nextDefault);
     }
   }, [defaultsLoaded, llmProvider, model, systemDefaults]);
