@@ -1,6 +1,4 @@
 import {
-  ShieldCheck,
-  Cpu,
   UserPlus,
   User,
   Shield,
@@ -17,6 +15,7 @@ import {
   Link2,
   PieChart,
   Gauge,
+  PlugZap,
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import type { SettingsTab } from './types';
@@ -29,8 +28,7 @@ interface NavItem {
 }
 
 const systemItems: NavItem[] = [
-  { key: 'claude', label: 'Anthropic Provider', icon: <ShieldCheck className="w-4 h-4" />, group: 'system' },
-  { key: 'codex', label: 'OpenAI / Codex Provider', icon: <Cpu className="w-4 h-4" />, group: 'system' },
+  { key: 'providers', label: 'Provider 管理', icon: <PlugZap className="w-4 h-4" />, group: 'system' },
   { key: 'registration', label: '注册管理', icon: <UserPlus className="w-4 h-4" />, group: 'system' },
   { key: 'appearance', label: '全局外观', icon: <Palette className="w-4 h-4" />, group: 'system' },
   { key: 'system', label: '系统参数', icon: <SlidersHorizontal className="w-4 h-4" />, group: 'system' },

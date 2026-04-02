@@ -4,8 +4,7 @@ import { Menu } from 'lucide-react';
 
 import { useAuthStore } from '../stores/auth';
 import { SettingsNav } from '../components/settings/SettingsNav';
-import { ClaudeProviderSection } from '../components/settings/ClaudeProviderSection';
-import { CodexProviderSection } from '../components/settings/CodexProviderSection';
+import { ProvidersSection } from '../components/settings/ProvidersSection';
 import { RegistrationSection } from '../components/settings/RegistrationSection';
 import { ProfileSection } from '../components/settings/ProfileSection';
 import { SecuritySection } from '../components/settings/SecuritySection';
@@ -25,8 +24,8 @@ import { MonitorPage } from './MonitorPage';
 import { Card, CardContent } from '@/components/ui/card';
 import type { SettingsTab } from '../components/settings/types';
 
-const VALID_TABS: SettingsTab[] = ['claude', 'codex', 'registration', 'appearance', 'system', 'profile', 'my-channels', 'security', 'groups', 'memory', 'skills', 'mcp-servers', 'agent-definitions', 'users', 'about', 'bindings', 'usage', 'monitor'];
-const SYSTEM_TABS: SettingsTab[] = ['claude', 'codex', 'registration', 'appearance', 'system'];
+const VALID_TABS: SettingsTab[] = ['providers', 'claude', 'codex', 'registration', 'appearance', 'system', 'profile', 'my-channels', 'security', 'groups', 'memory', 'skills', 'mcp-servers', 'agent-definitions', 'users', 'about', 'bindings', 'usage', 'monitor'];
+const SYSTEM_TABS: SettingsTab[] = ['providers', 'claude', 'codex', 'registration', 'appearance', 'system'];
 const FULLPAGE_TABS: SettingsTab[] = ['groups', 'memory', 'skills', 'mcp-servers', 'agent-definitions', 'users', 'bindings', 'usage', 'monitor'];
 
 export function SettingsPage() {
@@ -50,10 +49,11 @@ export function SettingsPage() {
     if (mustChangePassword) return 'profile';
     const raw = searchParams.get('tab') as SettingsTab | null;
     if (raw && VALID_TABS.includes(raw)) {
-      if (SYSTEM_TABS.includes(raw) && !canManageSystemConfig) return defaultTab;
-      if (raw === 'monitor' && !canManageSystemConfig) return defaultTab;
-      if (raw === 'users' && !canManageUsers) return defaultTab;
-      return raw;
+      const normalized = raw === 'claude' || raw === 'codex' ? 'providers' : raw;
+      if (SYSTEM_TABS.includes(normalized) && !canManageSystemConfig) return defaultTab;
+      if (normalized === 'monitor' && !canManageSystemConfig) return defaultTab;
+      if (normalized === 'users' && !canManageUsers) return defaultTab;
+      return normalized;
     }
     return defaultTab;
   }, [searchParams, canManageSystemConfig, canManageUsers, mustChangePassword, defaultTab]);
@@ -70,8 +70,7 @@ export function SettingsPage() {
     tabs.push({ key: 'my-channels', label: '消息通道' });
     tabs.push({ key: 'security', label: '安全' });
     if (canManageSystemConfig) {
-      tabs.push({ key: 'claude', label: 'Anthropic' });
-      tabs.push({ key: 'codex', label: 'OpenAI' });
+      tabs.push({ key: 'providers', label: 'Provider' });
       tabs.push({ key: 'registration', label: '注册' });
       tabs.push({ key: 'appearance', label: '全局外观' });
       tabs.push({ key: 'system', label: '系统' });
@@ -105,6 +104,7 @@ export function SettingsPage() {
   }, [activeTab]);
 
   const sectionTitle: Record<SettingsTab, string> = {
+    providers: 'Provider 管理',
     claude: 'Anthropic Provider',
     codex: 'OpenAI / Codex Provider',
     registration: '注册管理',
@@ -208,8 +208,7 @@ export function SettingsPage() {
 
               <Card>
                 <CardContent>
-                  {activeTab === 'claude' && <ClaudeProviderSection setNotice={() => {}} setError={() => {}} />}
-                  {activeTab === 'codex' && <CodexProviderSection setNotice={() => {}} setError={() => {}} />}
+                  {activeTab === 'providers' && <ProvidersSection />}
                   {activeTab === 'registration' && <RegistrationSection />}
                   {activeTab === 'appearance' && <AppearanceSection />}
                   {activeTab === 'system' && <SystemSettingsSection />}
