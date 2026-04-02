@@ -467,13 +467,13 @@ export function SystemSettingsSection() {
             onChange={(e) => setDefaultLlmProvider(e.target.value as 'claude' | 'openai')}
             className="max-w-md w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
           >
-            <option value="claude">Claude</option>
-            <option value="openai">Codex (OpenAI)</option>
+            <option value="claude">Anthropic</option>
+            <option value="openai">OpenAI / Codex</option>
           </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">
-            Claude 默认模型
+            Anthropic 默认模型
           </label>
           <Input
             type="text"
@@ -481,20 +481,20 @@ export function SystemSettingsSection() {
             onChange={(e) => setDefaultClaudeModel(e.target.value)}
             placeholder="opus / sonnet / haiku 或完整模型 ID"
             className="max-w-md font-mono"
-            list="sys-claude-model-presets"
+            list="sys-anthropic-model-presets"
           />
-          <datalist id="sys-claude-model-presets">
+          <datalist id="sys-anthropic-model-presets">
             <option value="opus" />
             <option value="sonnet" />
             <option value="haiku" />
           </datalist>
           <p className="text-xs text-muted-foreground mt-1">
-            留空则使用 Claude 提供商配置中的模型，最终默认为 opus。
+            留空则使用 Anthropic Provider 配置中的模型，最终默认为 opus。
           </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-foreground mb-1">
-            Codex 默认模型
+            OpenAI / Codex 默认模型
           </label>
           <Input
             type="text"

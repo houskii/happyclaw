@@ -10,6 +10,7 @@ import type {
   EnvRow,
 } from '../components/settings/types';
 import { getErrorMessage } from '../components/settings/types';
+import { CodexProviderSection } from '../components/settings/CodexProviderSection';
 import { useAuthStore } from '../stores/auth';
 
 type ProviderMode = 'official' | 'third_party';
@@ -256,13 +257,29 @@ export function SetupProvidersPage() {
     }
   };
 
+  const handleContinue = async () => {
+    setError(null);
+    setNotice(null);
+    try {
+      await checkAuth();
+      const { setupStatus: latestStatus } = useAuthStore.getState();
+      if (latestStatus?.needsSetup) {
+        setError('当前还没有可用的默认 Provider，请先完成 Anthropic 或 OpenAI / Codex 之一的配置');
+        return;
+      }
+      navigate('/settings?tab=system', { replace: true });
+    } catch (err) {
+      setError(getErrorMessage(err, '刷新接入状态失败'));
+    }
+  };
+
   return (
     <div className="h-screen bg-background overflow-y-auto p-4">
       <div className="w-full max-w-4xl mx-auto space-y-5">
         <div className="text-center">
           <p className="text-xs font-semibold text-primary tracking-wider mb-2">STEP 2 / 2</p>
           <h1 className="text-2xl font-bold text-foreground mb-2">系统接入初始化</h1>
-          <p className="text-sm text-muted-foreground">此页面保存的是系统全局默认配置。完成后才进入正式后台。</p>
+          <p className="text-sm text-muted-foreground">此页面用于初始化系统级默认 Provider 与 IM 配置。至少完成一个可用 Provider 后才能进入正式后台。</p>
         </div>
 
         {error && (
@@ -303,10 +320,10 @@ export function SetupProvidersPage() {
         <section className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
             <KeyRound className="w-4 h-4 text-primary" />
-            <h2 className="text-base font-semibold text-foreground">Anthropic Provider 初始化（二选一）</h2>
+            <h2 className="text-base font-semibold text-foreground">Anthropic Provider 初始化</h2>
           </div>
           <p className="text-xs text-muted-foreground mb-4">
-            这里只初始化系统默认的 Anthropic 渠道。如果你只使用 Codex，可跳过这里，后续在系统设置中单独配置 OpenAI / Codex。
+            这里用于快速初始化系统默认的 Anthropic 渠道。如果你只使用 Codex，可以跳过这一段，直接在下方配置 OpenAI / Codex Provider。
           </p>
 
           <div className="inline-flex rounded-lg border border-border p-1 bg-muted mb-4">
@@ -574,16 +591,32 @@ export function SetupProvidersPage() {
           )}
         </section>
 
+        <section className="bg-card rounded-xl border border-border shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            <h2 className="text-base font-semibold text-foreground">OpenAI / Codex Provider 初始化</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            如果默认运行时使用 Codex，请直接在这里完成 CLI 或 API Key 配置。保存成功后，点击页面底部的“刷新接入状态”即可进入后台。
+          </p>
+          <CodexProviderSection setNotice={setNotice} setError={setError} />
+        </section>
+
         <div className="bg-card rounded-xl border border-border shadow-sm p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="text-sm text-muted-foreground flex items-start gap-2">
             <ShieldCheck className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             当前页保存的数据会作为系统全局默认配置，后续可在后台设置页继续修改。
           </div>
-          <Button onClick={handleFinish} disabled={saving} className="min-w-64">
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            保存全局默认并进入后台
-            <ArrowRight className="w-4 h-4" />
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button type="button" variant="outline" onClick={handleContinue} disabled={saving}>
+              刷新接入状态
+            </Button>
+            <Button onClick={handleFinish} disabled={saving} className="min-w-64">
+              {saving && <Loader2 className="size-4 animate-spin" />}
+              保存全局默认并进入后台
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
