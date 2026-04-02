@@ -1,11 +1,14 @@
 import { useState } from 'react';
 
+import { useAuthStore } from '@/stores/auth';
 import { ClaudeProviderSection } from './ClaudeProviderSection';
 import { CodexProviderSection } from './CodexProviderSection';
+import { HostIntegrationsPanel } from './HostIntegrationsPanel';
 
 export function ProvidersSection() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
 
   return (
     <div className="space-y-6">
@@ -45,6 +48,16 @@ export function ProvidersSection() {
           </p>
         </div>
         <CodexProviderSection setNotice={setNotice} setError={setError} />
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">宿主来源接入</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            管理项目级宿主机来源路径，以及它们是否向 Skills 和 MCP Servers 暴露内容。
+          </p>
+        </div>
+        <HostIntegrationsPanel isAdmin={isAdmin} />
       </section>
     </div>
   );

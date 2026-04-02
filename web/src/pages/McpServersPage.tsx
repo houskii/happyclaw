@@ -7,12 +7,9 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useMcpServersStore } from '../stores/mcp-servers';
-import { useHostIntegrationsStore } from '../stores/host-integrations';
-import { useAuthStore } from '../stores/auth';
 import { McpServerCard } from '../components/mcp-servers/McpServerCard';
 import { McpServerDetail } from '../components/mcp-servers/McpServerDetail';
 import { AddMcpServerDialog } from '../components/mcp-servers/AddMcpServerDialog';
-import { HostIntegrationsPanel } from '../components/settings/HostIntegrationsPanel';
 
 export function McpServersPage() {
   const {
@@ -22,18 +19,13 @@ export function McpServersPage() {
     loadServers,
     addServer,
   } = useMcpServersStore();
-  const loadHostIntegrations = useHostIntegrationsStore((s) => s.load);
-
-  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
 
   useEffect(() => {
     loadServers();
-    loadHostIntegrations();
-  }, [loadServers, loadHostIntegrations]);
+  }, [loadServers]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -82,11 +74,13 @@ export function McpServersPage() {
 
         {/* Content */}
         <div className="space-y-4 p-4">
-          <HostIntegrationsPanel
-            isAdmin={isAdmin}
-            target="mcp"
-            onSynced={loadServers}
-          />
+          <Card className="border-border/60 bg-muted/20">
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              宿主来源路径与 MCP 接入开关已统一收口到
+              <span className="mx-1 font-medium text-foreground">设置 → Provider 管理</span>
+              中配置；这里仅展示同步后的服务器列表。
+            </CardContent>
+          </Card>
 
           <div className="flex gap-6">
           {/* Left list */}
