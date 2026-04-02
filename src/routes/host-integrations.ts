@@ -5,6 +5,7 @@ import type { AuthUser } from '../types.js';
 import { authMiddleware } from '../middleware/auth.js';
 import {
   getHostIntegrationStatuses,
+  type HostIntegrationSourceStatus,
   getMcpHostSyncSnapshot,
   getSkillsHostSyncSnapshot,
   syncHostIntegrationsForUser,
@@ -14,13 +15,23 @@ import { logger } from '../logger.js';
 
 const hostIntegrationsRoutes = new Hono<{ Variables: Variables }>();
 
+function serializeHostIntegrationStatuses(
+  statuses: HostIntegrationSourceStatus[],
+) {
+  return statuses.map(({ source, status, message }) => ({
+    ...source,
+    status,
+    message,
+  }));
+}
+
 hostIntegrationsRoutes.get('/', authMiddleware, (c) => {
   const authUser = c.get('user') as AuthUser;
   const skillsSync = getSkillsHostSyncSnapshot(authUser.id);
   const mcpSync = getMcpHostSyncSnapshot(authUser.id);
 
   return c.json({
-    sources: getHostIntegrationStatuses(),
+    sources: serializeHostIntegrationStatuses(getHostIntegrationStatuses()),
     skills: {
       lastSyncAt: skillsSync.lastSyncAt,
       syncedCount: Object.keys(skillsSync.owners).length,
@@ -47,7 +58,11 @@ hostIntegrationsRoutes.put('/', authMiddleware, async (c) => {
     const saved = saveSystemSettings({
       hostIntegrationSources: body.sources,
     });
-    return c.json({ sources: getHostIntegrationStatuses(saved.hostIntegrationSources) });
+    return c.json({
+      sources: serializeHostIntegrationStatuses(
+        getHostIntegrationStatuses(saved.hostIntegrationSources),
+      ),
+    });
   } catch (err) {
     logger.warn({ err }, 'Invalid host integration sources payload');
     return c.json(
@@ -69,7 +84,11 @@ hostIntegrationsRoutes.post('/sync', authMiddleware, async (c) => {
   }
 
   const result = syncHostIntegrationsForUser(authUser.id);
-  return c.json(result);
+  return c.json({
+    statuses: serializeHostIntegrationStatuses(result.sources),
+    skills: result.skills,
+    mcp: result.mcp,
+  });
 });
 
 export default hostIntegrationsRoutes;
