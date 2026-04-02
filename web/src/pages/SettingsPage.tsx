@@ -44,7 +44,7 @@ export function SettingsPage() {
     !!currentUser?.permissions.includes('manage_invites') ||
     !!currentUser?.permissions.includes('view_audit_log');
 
-  const defaultTab: SettingsTab = canManageSystemConfig ? 'claude' : 'profile';
+  const defaultTab: SettingsTab = canManageSystemConfig ? 'system' : 'profile';
 
   const activeTab = useMemo((): SettingsTab => {
     if (mustChangePassword) return 'profile';
@@ -70,8 +70,8 @@ export function SettingsPage() {
     tabs.push({ key: 'my-channels', label: '消息通道' });
     tabs.push({ key: 'security', label: '安全' });
     if (canManageSystemConfig) {
-      tabs.push({ key: 'claude', label: 'Claude' });
-      tabs.push({ key: 'codex', label: 'Codex' });
+      tabs.push({ key: 'claude', label: 'Anthropic' });
+      tabs.push({ key: 'codex', label: 'OpenAI' });
       tabs.push({ key: 'registration', label: '注册' });
       tabs.push({ key: 'appearance', label: '全局外观' });
       tabs.push({ key: 'system', label: '系统' });
@@ -105,8 +105,8 @@ export function SettingsPage() {
   }, [activeTab]);
 
   const sectionTitle: Record<SettingsTab, string> = {
-    claude: 'Claude 提供商',
-    codex: 'Codex 提供商',
+    claude: 'Anthropic Provider',
+    codex: 'OpenAI / Codex Provider',
     registration: '注册管理',
     appearance: '全局外观',
     system: '系统参数',

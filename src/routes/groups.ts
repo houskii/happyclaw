@@ -372,6 +372,11 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const customCwd = validation.data.custom_cwd; // Schema already trims and converts empty to undefined
   const initSourcePath = validation.data.init_source_path;
   const initGitUrl = validation.data.init_git_url;
+  const llmProvider = validation.data.llm_provider;
+  const model = validation.data.model;
+  const thinkingEffort = validation.data.thinking_effort;
+  const contextCompression = validation.data.context_compression;
+  const knowledgeExtraction = validation.data.knowledge_extraction;
   const authUser = c.get('user') as AuthUser;
 
   // Billing: check group limit
@@ -581,6 +586,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const folder = `flow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const now = new Date().toISOString();
 
+  const defaultLlmBinding = getDefaultLlmBinding();
   const group: RegisteredGroup = {
     name,
     folder,
@@ -590,7 +596,11 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
     created_by: authUser.id,
-    ...getDefaultLlmBinding(),
+    llm_provider: llmProvider ?? defaultLlmBinding.llm_provider,
+    model: model ?? defaultLlmBinding.model,
+    thinking_effort: thinkingEffort,
+    context_compression: contextCompression,
+    knowledge_extraction: knowledgeExtraction,
   };
 
   setRegisteredGroup(jid, group);
@@ -665,6 +675,11 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       member_role: 'owner',
       member_count: 1,
       is_shared: false,
+      llm_provider: group.llm_provider,
+      model: group.model,
+      thinking_effort: group.thinking_effort ?? null,
+      context_compression: group.context_compression ?? 'off',
+      knowledge_extraction: group.knowledge_extraction ?? false,
     },
   });
 });
@@ -691,6 +706,11 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     is_pinned,
     activation_mode,
     execution_mode,
+    llm_provider,
+    model,
+    thinking_effort,
+    context_compression,
+    knowledge_extraction,
   } = validation.data;
   const name = rawName ? normalizeGroupName(rawName) : undefined;
 
@@ -699,7 +719,12 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     !name &&
     is_pinned === undefined &&
     activation_mode === undefined &&
-    execution_mode === undefined
+    execution_mode === undefined &&
+    llm_provider === undefined &&
+    model === undefined &&
+    thinking_effort === undefined &&
+    context_compression === undefined &&
+    knowledge_extraction === undefined
   ) {
     return c.json({ error: 'No fields to update' }, 400);
   }
@@ -768,7 +793,19 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
   }
 
   // Update registered group if name, activation_mode, or execution_mode changed
-  if (name || activation_mode !== undefined || execution_mode !== undefined) {
+  const runtimeSettingsChanged =
+    llm_provider !== undefined ||
+    model !== undefined ||
+    thinking_effort !== undefined ||
+    context_compression !== undefined ||
+    knowledge_extraction !== undefined;
+
+  if (
+    name ||
+    activation_mode !== undefined ||
+    execution_mode !== undefined ||
+    runtimeSettingsChanged
+  ) {
     const updated: RegisteredGroup = {
       name: name || existing.name,
       folder: existing.folder,
@@ -791,14 +828,41 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         activation_mode !== undefined
           ? activation_mode
           : existing.activation_mode,
+      llm_provider: llm_provider ?? existing.llm_provider,
+      model: model !== undefined ? model ?? undefined : existing.model,
+      thinking_effort:
+        thinking_effort !== undefined ? thinking_effort ?? undefined : existing.thinking_effort,
+      context_compression:
+        context_compression !== undefined
+          ? context_compression ?? undefined
+          : existing.context_compression,
+      knowledge_extraction:
+        knowledge_extraction !== undefined
+          ? knowledge_extraction
+          : existing.knowledge_extraction,
     };
 
     setRegisteredGroup(jid, updated);
     if (name) updateChatName(jid, name);
     deps.getRegisteredGroups()[jid] = updated;
+
+    if (runtimeSettingsChanged) {
+      try {
+        await deps.queue.stopGroup(jid);
+      } catch (err) {
+        logger.warn(
+          { jid, err },
+          'Failed to stop group after runtime settings update',
+        );
+      }
+    }
   }
 
-  return c.json({ success: true, pinned_at });
+  return c.json({
+    success: true,
+    pinned_at,
+    group: buildGroupsPayload(authUser)[jid],
+  });
 });
 
 // DELETE /api/groups/:jid - 删除群组

@@ -17,6 +17,11 @@ export interface GroupInfo {
   created_by?: string;
   pinned_at?: string;
   activation_mode?: 'auto' | 'always' | 'when_mentioned' | 'disabled';
+  llm_provider?: 'claude' | 'openai';
+  model?: string;
+  thinking_effort?: 'low' | 'medium' | 'high' | null;
+  context_compression?: string;
+  knowledge_extraction?: boolean;
 }
 
 export interface AgentInfo {

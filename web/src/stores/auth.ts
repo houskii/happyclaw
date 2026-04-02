@@ -42,6 +42,7 @@ export interface AppearanceConfig {
 export interface SetupStatus {
   needsSetup: boolean;
   claudeConfigured: boolean;
+  providerConfigured?: boolean;
   feishuConfigured: boolean;
 }
 

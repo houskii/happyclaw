@@ -87,7 +87,7 @@ export function SetupProvidersPage() {
 
   useEffect(() => {
     if (setupStatus && !setupStatus.needsSetup) {
-      navigate('/settings?tab=claude', { replace: true });
+      navigate('/settings?tab=system', { replace: true });
     }
   }, [setupStatus, navigate]);
 
@@ -248,7 +248,7 @@ export function SetupProvidersPage() {
         setError('配置已保存但验证未通过，请检查填写的配置是否正确');
         return;
       }
-      navigate('/settings?tab=claude', { replace: true });
+      navigate('/settings?tab=system', { replace: true });
     } catch (err) {
       setError(getErrorMessage(err, '保存初始化配置失败'));
     } finally {
@@ -303,8 +303,11 @@ export function SetupProvidersPage() {
         <section className="bg-card rounded-xl border border-border shadow-sm p-5">
           <div className="flex items-center gap-2 mb-3">
             <KeyRound className="w-4 h-4 text-primary" />
-            <h2 className="text-base font-semibold text-foreground">Claude Code 配置（二选一）</h2>
+            <h2 className="text-base font-semibold text-foreground">Anthropic Provider 初始化（二选一）</h2>
           </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            这里只初始化系统默认的 Anthropic 渠道。如果你只使用 Codex，可跳过这里，后续在系统设置中单独配置 OpenAI / Codex。
+          </p>
 
           <div className="inline-flex rounded-lg border border-border p-1 bg-muted mb-4">
             <button

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -19,9 +19,26 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { DirectoryBrowser } from '../shared/DirectoryBrowser';
 import { useChatStore } from '../../stores/chat';
 import { useAuthStore } from '../../stores/auth';
+import { api } from '../../api/client';
+import { useCodexModels } from '../../hooks/useCodexModels';
+
+interface SystemDefaults {
+  defaultLlmProvider?: 'claude' | 'openai';
+  defaultClaudeModel?: string;
+  defaultCodexModel?: string;
+}
 
 interface CreateContainerDialogProps {
   open: boolean;
@@ -42,11 +59,43 @@ export function CreateContainerDialog({
   const [initMode, setInitMode] = useState<'empty' | 'local' | 'git'>('empty');
   const [initSourcePath, setInitSourcePath] = useState('');
   const [initGitUrl, setInitGitUrl] = useState('');
+  const [systemDefaults, setSystemDefaults] = useState<SystemDefaults>({
+    defaultLlmProvider: 'claude',
+    defaultClaudeModel: '',
+    defaultCodexModel: '',
+  });
+  const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+  const [llmProvider, setLlmProvider] = useState<'claude' | 'openai'>('claude');
+  const [model, setModel] = useState('');
+  const [thinkingEffort, setThinkingEffort] = useState<'default' | 'low' | 'medium' | 'high'>('default');
+  const [contextCompression, setContextCompression] = useState('');
+  const [knowledgeExtraction, setKnowledgeExtraction] = useState(false);
 
   const createFlow = useChatStore((s) => s.createFlow);
   const canHostExec = useAuthStore((s) => s.user?.role === 'admin');
+  const { models: codexModels, loading: codexModelsLoading } = useCodexModels(
+    open && advancedOpen && llmProvider === 'openai',
+  );
 
-  const reset = () => {
+  const applyDefaults = (defaults?: SystemDefaults) => {
+    const provider = defaults?.defaultLlmProvider ?? 'claude';
+    setSystemDefaults({
+      defaultLlmProvider: provider,
+      defaultClaudeModel: defaults?.defaultClaudeModel ?? '',
+      defaultCodexModel: defaults?.defaultCodexModel ?? '',
+    });
+    setLlmProvider(provider);
+    setModel(
+      provider === 'openai'
+        ? defaults?.defaultCodexModel ?? ''
+        : defaults?.defaultClaudeModel ?? '',
+    );
+    setThinkingEffort('default');
+    setContextCompression('');
+    setKnowledgeExtraction(false);
+  };
+
+  const reset = (defaults?: SystemDefaults) => {
     setName('');
     setAdvancedOpen(false);
     setExecutionMode('container');
@@ -54,6 +103,7 @@ export function CreateContainerDialog({
     setInitMode('empty');
     setInitSourcePath('');
     setInitGitUrl('');
+    applyDefaults(defaults);
   };
 
   const handleClose = () => {
@@ -61,13 +111,59 @@ export function CreateContainerDialog({
     reset();
   };
 
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    setDefaultsLoaded(false);
+
+    void api
+      .get<SystemDefaults>('/api/config/system')
+      .then((defaults) => {
+        if (cancelled) return;
+        reset(defaults);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        reset();
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultsLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!defaultsLoaded) return;
+    const claudeDefault = systemDefaults.defaultClaudeModel ?? '';
+    const codexDefault = systemDefaults.defaultCodexModel ?? '';
+    const nextDefault = llmProvider === 'openai' ? codexDefault : claudeDefault;
+
+    if (!model.trim() || model === claudeDefault || model === codexDefault) {
+      setModel(nextDefault);
+    }
+  }, [defaultsLoaded, llmProvider, model, systemDefaults]);
+
   const handleConfirm = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
 
     setLoading(true);
     try {
-      const options: Record<string, string> = {};
+      const options: {
+        execution_mode?: 'container' | 'host';
+        custom_cwd?: string;
+        init_source_path?: string;
+        init_git_url?: string;
+        llm_provider?: 'claude' | 'openai';
+        model?: string;
+        thinking_effort?: 'low' | 'medium' | 'high' | null;
+        context_compression?: string;
+        knowledge_extraction?: boolean;
+      } = {};
       if (executionMode === 'host') {
         options.execution_mode = 'host';
         if (customCwd.trim()) options.custom_cwd = customCwd.trim();
@@ -78,6 +174,11 @@ export function CreateContainerDialog({
           options.init_git_url = initGitUrl.trim();
         }
       }
+      options.llm_provider = llmProvider;
+      if (model.trim()) options.model = model.trim();
+      if (thinkingEffort !== 'default') options.thinking_effort = thinkingEffort;
+      if (contextCompression.trim()) options.context_compression = contextCompression.trim();
+      options.knowledge_extraction = knowledgeExtraction;
       const created = await createFlow(trimmed, Object.keys(options).length ? options : undefined);
       if (created) {
         onCreated(created.jid, created.folder);
@@ -233,6 +334,88 @@ export function CreateContainerDialog({
                     </div>
                   </>
                 )}
+
+                <div className="pt-1 space-y-3">
+                  <div>
+                    <Label className="mb-2">运行模型</Label>
+                    <div className="grid gap-3">
+                      <div>
+                        <Label className="mb-2 text-xs text-muted-foreground">Provider</Label>
+                        <Select
+                          value={llmProvider}
+                          onValueChange={(value) => setLlmProvider(value as 'claude' | 'openai')}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="claude">Claude</SelectItem>
+                            <SelectItem value="openai">Codex</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label className="mb-2 text-xs text-muted-foreground">模型</Label>
+                        <Input
+                          list={llmProvider === 'openai' ? 'codex-model-options' : undefined}
+                          value={model}
+                          onChange={(e) => setModel(e.target.value)}
+                          placeholder="留空时跟随系统默认模型"
+                        />
+                        {llmProvider === 'openai' && (
+                          <datalist id="codex-model-options">
+                            {codexModels.map((option) => (
+                              option.value === '__default__' ? null : (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              )
+                            ))}
+                          </datalist>
+                        )}
+                        {llmProvider === 'openai' && codexModelsLoading && (
+                          <p className="mt-1 text-xs text-muted-foreground">正在加载 Codex 模型列表…</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <Label className="mb-2 text-xs text-muted-foreground">推理强度</Label>
+                        <Select
+                          value={thinkingEffort}
+                          onValueChange={(value) => setThinkingEffort(value as 'default' | 'low' | 'medium' | 'high')}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">跟随模型默认</SelectItem>
+                            <SelectItem value="low">低</SelectItem>
+                            <SelectItem value="medium">中</SelectItem>
+                            <SelectItem value="high">高</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label className="mb-2 text-xs text-muted-foreground">上下文压缩策略</Label>
+                        <Input
+                          value={contextCompression}
+                          onChange={(e) => setContextCompression(e.target.value)}
+                          placeholder="留空时使用系统默认值"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                        <div>
+                          <div className="text-sm font-medium">知识提取</div>
+                          <p className="text-xs text-muted-foreground">允许工作区自动提取并沉淀结构化知识</p>
+                        </div>
+                        <Switch checked={knowledgeExtraction} onCheckedChange={setKnowledgeExtraction} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -32,8 +32,8 @@ import {
 } from '../db.js';
 import {
   getRegistrationConfig,
-  getClaudeProviderConfig,
   getEnabledProviders,
+  getCodexProviderConfig,
   getFeishuProviderConfigWithSource,
   getAppearanceConfig,
 } from '../runtime-config.js';
@@ -145,12 +145,19 @@ function buildSetupStatus() {
     );
     return hasOfficial || hasThirdParty;
   });
+  const codexConfig = getCodexProviderConfig();
+  const codexConfigured =
+    codexConfig.mode === 'cli'
+      ? codexConfig.hasCliAuth
+      : !!codexConfig.activeProfile || codexConfig.hasEnvApiKey;
+  const providerConfigured = claudeConfigured || codexConfigured;
   const { source: feishuSource } = getFeishuProviderConfigWithSource();
   const feishuConfigured = feishuSource !== 'none';
 
   return {
-    needsSetup: !claudeConfigured,
+    needsSetup: !providerConfigured,
     claudeConfigured,
+    providerConfigured,
     feishuConfigured,
   };
 }

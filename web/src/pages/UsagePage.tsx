@@ -372,7 +372,7 @@ export function UsagePage() {
                           outerRadius={90}
                           // eslint-disable-next-line @typescript-eslint/no-explicit-any
                           label={(props: any) =>
-                            `${String(props.model ?? '').replace('claude-', '')} ${((Number(props.percent) || 0) * 100).toFixed(0)}%`
+                            `${String(props.model ?? '')} ${((Number(props.percent) || 0) * 100).toFixed(0)}%`
                           }
                         >
                           {modelData.map((_, i) => (

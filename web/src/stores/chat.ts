@@ -8,6 +8,21 @@ import type { GroupInfo, AgentInfo, AvailableImGroup } from '../types';
 
 export type { GroupInfo, AgentInfo };
 
+export interface FlowRuntimeSettings {
+  llm_provider?: 'claude' | 'openai';
+  model?: string;
+  thinking_effort?: 'low' | 'medium' | 'high' | null;
+  context_compression?: string;
+  knowledge_extraction?: boolean;
+}
+
+export interface CreateFlowOptions extends FlowRuntimeSettings {
+  execution_mode?: 'container' | 'host';
+  custom_cwd?: string;
+  init_source_path?: string;
+  init_git_url?: string;
+}
+
 export interface Message {
   id: string;
   chat_jid: string;
@@ -211,8 +226,9 @@ interface ChatState {
   resetSession: (jid: string, agentId?: string) => Promise<boolean>;
   clearHistory: (jid: string) => Promise<boolean>;
   deleteMessage: (jid: string, messageId: string) => Promise<boolean>;
-  createFlow: (name: string, options?: { execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => Promise<{ jid: string; folder: string } | null>;
+  createFlow: (name: string, options?: CreateFlowOptions) => Promise<{ jid: string; folder: string } | null>;
   renameFlow: (jid: string, name: string) => Promise<void>;
+  updateFlowSettings: (jid: string, updates: FlowRuntimeSettings) => Promise<boolean>;
   togglePin: (jid: string) => Promise<void>;
   deleteFlow: (jid: string) => Promise<void>;
   handleStreamEvent: (chatJid: string, event: StreamEvent, agentId?: string) => void;
@@ -1155,13 +1171,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createFlow: async (name: string, options?: { execution_mode?: 'container' | 'host'; custom_cwd?: string; init_source_path?: string; init_git_url?: string }) => {
+  createFlow: async (name: string, options?: CreateFlowOptions) => {
     try {
-      const body: Record<string, string> = { name };
+      const body: Record<string, string | boolean | null> = { name };
       if (options?.execution_mode) body.execution_mode = options.execution_mode;
       if (options?.custom_cwd) body.custom_cwd = options.custom_cwd;
       if (options?.init_source_path) body.init_source_path = options.init_source_path;
       if (options?.init_git_url) body.init_git_url = options.init_git_url;
+      if (options?.llm_provider) body.llm_provider = options.llm_provider;
+      if (options?.model?.trim()) body.model = options.model.trim();
+      if (options?.thinking_effort) body.thinking_effort = options.thinking_effort;
+      if (options?.context_compression?.trim()) body.context_compression = options.context_compression.trim();
+      if (typeof options?.knowledge_extraction === 'boolean') body.knowledge_extraction = options.knowledge_extraction;
 
       const needsLongTimeout = !!(options?.init_source_path || options?.init_git_url);
       const data = await api.post<{
@@ -1202,6 +1223,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  },
+
+  updateFlowSettings: async (jid: string, updates: FlowRuntimeSettings) => {
+    try {
+      const body: Record<string, string | boolean | null> = {};
+      if (updates.llm_provider) body.llm_provider = updates.llm_provider;
+      if (updates.model !== undefined) body.model = updates.model.trim() || null;
+      if (updates.thinking_effort !== undefined) body.thinking_effort = updates.thinking_effort;
+      if (updates.context_compression !== undefined) {
+        body.context_compression = updates.context_compression.trim() || null;
+      }
+      if (typeof updates.knowledge_extraction === 'boolean') {
+        body.knowledge_extraction = updates.knowledge_extraction;
+      }
+
+      const data = await api.patch<{ success: boolean; group?: GroupInfo }>(
+        `/api/groups/${encodeURIComponent(jid)}`,
+        body,
+      );
+      if (!data.success) return false;
+
+      set((s) => {
+        const existing = s.groups[jid];
+        const nextGroup = data.group ?? (existing ? { ...existing, ...updates } : undefined);
+        if (!nextGroup) return s;
+        return {
+          groups: {
+            ...s.groups,
+            [jid]: nextGroup,
+          },
+          error: null,
+        };
+      });
+      return true;
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : String(err) });
+      return false;
     }
   },
 

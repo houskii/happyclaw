@@ -117,6 +117,18 @@ export const MessageCreateSchema = z
     }
   });
 
+const WorkspaceLlmProviderSchema = z.enum(['claude', 'openai']);
+const ThinkingEffortSchema = z.enum(['low', 'medium', 'high']);
+const TrimmedOptionalString = z
+  .string()
+  .optional()
+  .transform((val) => (val && val.trim() ? val.trim() : undefined));
+const TrimmedNullableString = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((val) => (typeof val === 'string' ? (val.trim() ? val.trim() : undefined) : val));
+
 export const GroupCreateSchema = z.object({
   name: z.string().min(1).max(MAX_GROUP_NAME_LEN),
   execution_mode: z.enum(['container', 'host']).optional(),
@@ -132,6 +144,11 @@ export const GroupCreateSchema = z.object({
     .string()
     .optional()
     .transform((val) => (val && val.trim() ? val.trim() : undefined)),
+  llm_provider: WorkspaceLlmProviderSchema.optional(),
+  model: TrimmedOptionalString,
+  thinking_effort: ThinkingEffortSchema.optional(),
+  context_compression: TrimmedOptionalString,
+  knowledge_extraction: z.boolean().optional(),
 });
 
 export const GroupMemberAddSchema = z.object({
@@ -195,6 +212,11 @@ export const GroupPatchSchema = z.object({
     .enum(['auto', 'always', 'when_mentioned', 'disabled'])
     .optional(),
   execution_mode: z.enum(['container', 'host']).optional(),
+  llm_provider: WorkspaceLlmProviderSchema.optional(),
+  model: TrimmedNullableString,
+  thinking_effort: ThinkingEffortSchema.nullable().optional(),
+  context_compression: TrimmedNullableString,
+  knowledge_extraction: z.boolean().optional(),
 });
 
 export const LoginSchema = z.object({
