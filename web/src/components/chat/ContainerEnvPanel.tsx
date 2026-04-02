@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Loader2, Save, Plus, X, RefreshCw, Trash2 } from 'lucide-react';
 import { useContainerEnvStore } from '../../stores/container-env';
+import { useChatStore } from '../../stores/chat';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
@@ -9,18 +10,31 @@ interface ContainerEnvPanelProps {
   onClose?: () => void;
 }
 
-const MODEL_ENV_KEY = 'ANTHROPIC_MODEL';
-const MODEL_PRESETS = ['opus[1m]', 'opus', 'sonnet[1m]', 'sonnet', 'haiku'] as const;
+const ANTHROPIC_MODEL_ENV_KEY = 'ANTHROPIC_MODEL';
+const OPENAI_BASE_URL_ENV_KEY = 'OPENAI_BASE_URL';
+const OPENAI_API_KEY_ENV_KEY = 'OPENAI_API_KEY';
+const CODEX_MODEL_ENV_KEY = 'HAPPYCLAW_CODEX_MODEL';
+const ANTHROPIC_MODEL_PRESETS = [
+  'opus[1m]',
+  'opus',
+  'sonnet[1m]',
+  'sonnet',
+  'haiku',
+] as const;
 
 export function ContainerEnvPanel({ groupJid, onClose }: ContainerEnvPanelProps) {
   const { configs, loading, saving, loadConfig, saveConfig } = useContainerEnvStore();
   const config = configs[groupJid];
+  const llmProvider = useChatStore(
+    (s) => s.groups[groupJid]?.llm_provider ?? 'claude',
+  );
 
   // Draft state for form fields
   const [baseUrl, setBaseUrl] = useState('');
   const [authToken, setAuthToken] = useState('');
   const [authTokenDirty, setAuthTokenDirty] = useState(false);
   const [model, setModel] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [customEnv, setCustomEnv] = useState<{ key: string; value: string }[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -41,41 +55,66 @@ export function ContainerEnvPanel({ groupJid, onClose }: ContainerEnvPanelProps)
   // Sync config to draft when loaded
   useEffect(() => {
     if (!config) return;
-    setBaseUrl(config.anthropicBaseUrl || '');
+    const envEntries = Object.entries(config.customEnv || {}).map(([key, value]) => ({
+      key,
+      value,
+    }));
+    const customEnvMap = config.customEnv || {};
+
+    setBaseUrl(
+      llmProvider === 'openai'
+        ? customEnvMap[OPENAI_BASE_URL_ENV_KEY] || ''
+        : config.anthropicBaseUrl || '',
+    );
     setAuthToken('');
     setAuthTokenDirty(false);
-    const entries = Object.entries(config.customEnv || {}).map(([key, value]) => ({ key, value }));
-    const modelFromConfig = (config.customEnv && config.customEnv[MODEL_ENV_KEY]) || '';
-    setModel(modelFromConfig);
-    setCustomEnv(entries.filter(({ key }) => key !== MODEL_ENV_KEY));
-  }, [config]);
+    setOpenaiApiKey(customEnvMap[OPENAI_API_KEY_ENV_KEY] || '');
+    setModel(
+      llmProvider === 'openai'
+        ? customEnvMap[CODEX_MODEL_ENV_KEY] || ''
+        : config.anthropicModel || customEnvMap[ANTHROPIC_MODEL_ENV_KEY] || '',
+    );
+    const reservedKeys =
+      llmProvider === 'openai'
+        ? new Set([
+            OPENAI_BASE_URL_ENV_KEY,
+            OPENAI_API_KEY_ENV_KEY,
+            CODEX_MODEL_ENV_KEY,
+          ])
+        : new Set([ANTHROPIC_MODEL_ENV_KEY]);
+    setCustomEnv(envEntries.filter(({ key }) => !reservedKeys.has(key)));
+  }, [config, llmProvider]);
 
   const handleSave = async () => {
     const data: Record<string, unknown> = {};
-
-    // Always send baseUrl
-    data.anthropicBaseUrl = baseUrl;
-
-    // Only update secret when field has been edited.
-    // If edited to empty string, backend will clear override and fall back to global.
-    if (authTokenDirty) data.anthropicAuthToken = authToken;
 
     // Build custom env (filter empty keys)
     const envMap: Record<string, string> = {};
     for (const { key, value } of customEnv) {
       const k = key.trim();
-      if (!k || k === MODEL_ENV_KEY) continue;
+      if (!k) continue;
       envMap[k] = value;
     }
     const normalizedModel = model.trim();
-    if (normalizedModel) {
-      envMap[MODEL_ENV_KEY] = normalizedModel;
+
+    if (llmProvider === 'openai') {
+      if (baseUrl.trim()) envMap[OPENAI_BASE_URL_ENV_KEY] = baseUrl.trim();
+      if (openaiApiKey.trim())
+        envMap[OPENAI_API_KEY_ENV_KEY] = openaiApiKey.trim();
+      if (normalizedModel) envMap[CODEX_MODEL_ENV_KEY] = normalizedModel;
+    } else {
+      data.anthropicBaseUrl = baseUrl;
+      // Only update secret when field has been edited.
+      // If edited to empty string, backend will clear override and fall back to global.
+      if (authTokenDirty) data.anthropicAuthToken = authToken;
+      data.anthropicModel = normalizedModel;
     }
     data.customEnv = envMap;
 
     const ok = await saveConfig(groupJid, data as {
       anthropicBaseUrl?: string;
       anthropicAuthToken?: string;
+      anthropicModel?: string;
       customEnv?: Record<string, string>;
     });
     if (ok) {
@@ -95,6 +134,7 @@ export function ContainerEnvPanel({ groupJid, onClose }: ContainerEnvPanelProps)
       anthropicAuthToken: '',
       anthropicApiKey: '',
       claudeCodeOauthToken: '',
+      anthropicModel: '',
       customEnv: {},
     });
     setClearing(false);
@@ -152,69 +192,125 @@ export function ContainerEnvPanel({ groupJid, onClose }: ContainerEnvPanelProps)
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4">
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          覆盖当前工作区的 Anthropic 环境变量，仅对当前工作区生效。留空则使用系统全局默认值。保存后工作区将自动重建。
+          {llmProvider === 'openai'
+            ? '覆盖当前工作区的 OpenAI / Codex 运行时环境变量，仅对当前工作区生效。未填写的项目继续使用系统全局配置。保存后工作区将自动重建。'
+            : '覆盖当前工作区的 Anthropic 运行时环境变量，仅对当前工作区生效。留空则使用系统全局默认值。保存后工作区将自动重建。'}
         </p>
 
-        {/* Anthropic Provider Fields */}
+        {/* Provider-specific fields */}
         <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              ANTHROPIC_BASE_URL
-            </label>
-            <Input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="留空使用全局配置"
-              className="px-2.5 py-1.5 text-xs h-auto"
-            />
-          </div>
+          {llmProvider === 'openai' ? (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  OPENAI_BASE_URL
+                </label>
+                <Input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="留空使用全局 OpenAI 配置"
+                  className="px-2.5 py-1.5 text-xs h-auto font-mono"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              ANTHROPIC_AUTH_TOKEN
-              {config?.hasAnthropicAuthToken && (
-                <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
-                  ({config.anthropicAuthTokenMasked})
-                </span>
-              )}
-            </label>
-            <Input
-              type="password"
-              value={authToken}
-              onChange={(e) => {
-                setAuthToken(e.target.value);
-                setAuthTokenDirty(true);
-              }}
-              placeholder={config?.hasAnthropicAuthToken ? '已设置，输入新值覆盖；留空可清除覆盖' : '留空使用全局配置'}
-              className="px-2.5 py-1.5 text-xs h-auto"
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  OPENAI_API_KEY
+                </label>
+                <Input
+                  type="password"
+                  value={openaiApiKey}
+                  onChange={(e) => setOpenaiApiKey(e.target.value)}
+                  placeholder="留空使用全局 OpenAI 配置"
+                  className="px-2.5 py-1.5 text-xs h-auto font-mono"
+                />
+              </div>
 
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              模型（ANTHROPIC_MODEL）
-            </label>
-            <div className="space-y-1.5">
-              <Input
-                type="text"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="opus / sonnet / haiku 或完整模型 ID"
-                className="px-2.5 py-1.5 text-xs h-auto font-mono"
-                list="anthropic-model-presets"
-              />
-              <datalist id="anthropic-model-presets">
-                {MODEL_PRESETS.map((preset) => (
-                  <option key={preset} value={preset} />
-                ))}
-              </datalist>
-              <p className="text-[11px] text-muted-foreground">
-                留空则回退到全局配置（默认值通常为 <code className="bg-muted px-1 rounded">opus</code>）。
-              </p>
-            </div>
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  模型（HAPPYCLAW_CODEX_MODEL）
+                </label>
+                <div className="space-y-1.5">
+                  <Input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="留空使用工作区或系统默认模型"
+                    className="px-2.5 py-1.5 text-xs h-auto font-mono"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    仅覆盖当前工作区的 OpenAI / Codex 运行模型。
+                  </p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  ANTHROPIC_BASE_URL
+                </label>
+                <Input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="留空使用全局配置"
+                  className="px-2.5 py-1.5 text-xs h-auto"
+                />
+              </div>
 
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  ANTHROPIC_AUTH_TOKEN
+                  {config?.hasAnthropicAuthToken && (
+                    <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
+                      ({config.anthropicAuthTokenMasked})
+                    </span>
+                  )}
+                </label>
+                <Input
+                  type="password"
+                  value={authToken}
+                  onChange={(e) => {
+                    setAuthToken(e.target.value);
+                    setAuthTokenDirty(true);
+                  }}
+                  placeholder={
+                    config?.hasAnthropicAuthToken
+                      ? '已设置，输入新值覆盖；留空可清除覆盖'
+                      : '留空使用全局配置'
+                  }
+                  className="px-2.5 py-1.5 text-xs h-auto"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
+                  模型（ANTHROPIC_MODEL）
+                </label>
+                <div className="space-y-1.5">
+                  <Input
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="opus / sonnet / haiku 或完整模型 ID"
+                    className="px-2.5 py-1.5 text-xs h-auto font-mono"
+                    list="anthropic-model-presets"
+                  />
+                  <datalist id="anthropic-model-presets">
+                    {ANTHROPIC_MODEL_PRESETS.map((preset) => (
+                      <option key={preset} value={preset} />
+                    ))}
+                  </datalist>
+                  <p className="text-[11px] text-muted-foreground">
+                    留空则回退到全局配置（默认值通常为{' '}
+                    <code className="bg-muted px-1 rounded">opus</code>）。
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Separator */}

@@ -201,80 +201,107 @@ export function CreateContainerDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="flex max-h-[90dvh] flex-col sm:max-w-md">
         <DialogHeader>
           <DialogTitle>新建工作区</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <div className="space-y-4">
           {/* Name input */}
-          <div>
-            <label className="block text-sm font-medium mb-2">工作区名称</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleConfirm(); }}
-              placeholder="输入工作区名称"
-              autoFocus
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">工作区名称</label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleConfirm();
+                }}
+                placeholder="输入工作区名称"
+                autoFocus
+              />
+            </div>
 
-          {/* Advanced options */}
-          <div className="border rounded-lg overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent transition-colors cursor-pointer"
-            >
-              {advancedOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              高级选项
-            </button>
-            {advancedOpen && (
-              <div className="px-3 pb-3 space-y-3 border-t">
+            {/* Advanced options */}
+            <div className="border rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen(!advancedOpen)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent transition-colors cursor-pointer"
+              >
+                {advancedOpen ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+                高级选项
+              </button>
+              {advancedOpen && (
+                <div className="px-3 pb-3 space-y-3 border-t">
                 {/* Execution mode */}
-                <div className="pt-3">
-                  <label className="block text-sm font-medium mb-2">执行模式</label>
-                  <div className="space-y-2">
-                    <label className="flex items-start gap-3 p-2 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
-                      <input
-                        type="radio"
-                        name="execution_mode"
-                        value="container"
-                        checked={executionMode === 'container'}
-                        onChange={() => { setExecutionMode('container'); setCustomCwd(''); }}
-                        className="mt-0.5 accent-primary"
-                      />
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <Box className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">Docker 模式</span>
-                          <span className="text-xs text-primary font-medium">推荐</span>
+                  <div className="pt-3">
+                    <label className="block text-sm font-medium mb-2">执行模式</label>
+                    <div className="space-y-2">
+                      <label className="flex items-start gap-3 p-2 rounded-lg border cursor-pointer hover:bg-accent/50 transition-colors">
+                        <input
+                          type="radio"
+                          name="execution_mode"
+                          value="container"
+                          checked={executionMode === 'container'}
+                          onChange={() => {
+                            setExecutionMode('container');
+                            setCustomCwd('');
+                          }}
+                          className="mt-0.5 accent-primary"
+                        />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <Box className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">Docker 模式</span>
+                            <span className="text-xs text-primary font-medium">推荐</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            在隔离的 Docker 环境中执行
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">在隔离的 Docker 环境中执行</p>
-                      </div>
-                    </label>
-                    <label className={`flex items-start gap-3 p-2 rounded-lg border transition-colors ${canHostExec ? 'cursor-pointer hover:bg-accent/50' : 'opacity-50 cursor-not-allowed'}`}>
-                      <input
-                        type="radio"
-                        name="execution_mode"
-                        value="host"
-                        checked={executionMode === 'host'}
-                        onChange={() => { if (canHostExec) { setExecutionMode('host'); setInitMode('empty'); setInitSourcePath(''); setInitGitUrl(''); } }}
-                        disabled={!canHostExec}
-                        className="mt-0.5 accent-primary"
-                      />
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <Monitor className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">宿主机模式</span>
+                      </label>
+                      <label
+                        className={`flex items-start gap-3 p-2 rounded-lg border transition-colors ${
+                          canHostExec
+                            ? 'cursor-pointer hover:bg-accent/50'
+                            : 'opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="execution_mode"
+                          value="host"
+                          checked={executionMode === 'host'}
+                          onChange={() => {
+                            if (canHostExec) {
+                              setExecutionMode('host');
+                              setInitMode('empty');
+                              setInitSourcePath('');
+                              setInitGitUrl('');
+                            }
+                          }}
+                          disabled={!canHostExec}
+                          className="mt-0.5 accent-primary"
+                        />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <Monitor className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm font-medium">宿主机模式</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {canHostExec
+                              ? '直接在服务器上执行'
+                              : '需要管理员权限'}
+                          </p>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {canHostExec ? '直接在服务器上执行' : '需要管理员权限'}
-                        </p>
-                      </div>
-                    </label>
+                      </label>
+                    </div>
                   </div>
-                </div>
 
                 {/* Container mode: workspace source */}
                 {executionMode === 'container' && (
@@ -423,9 +450,9 @@ export function CreateContainerDialog({
                   </div>
                 </div>
               </div>
-            )}
+              )}
+            </div>
           </div>
-
         </div>
 
         <DialogFooter>
