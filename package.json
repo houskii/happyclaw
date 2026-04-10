@@ -17,7 +17,7 @@
     "dev:all": "npx concurrently --timestamp-format \"yyyy-MM-dd HH:mm:ss.SSS\" -n backend,frontend -c blue,green \"npm run dev\" \"npm run dev:web\"",
     "dev:web": "cd web && npm run dev",
     "build:web": "cd web && npm run build",
-    "build:all": "npx concurrently --group -n backend,web,agent-runner \"npm run build\" \"npm run build:web\" \"npm --prefix container/agent-runner run build\""
+    "build:all": "npx concurrently --group -n backend,web,agent-runner \"npm run build\" \"npm run build:web\" \"npm --prefix container/agent-runner-core run build && npm --prefix container/agent-runner run build\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.85",

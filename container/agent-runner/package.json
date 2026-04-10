@@ -5,6 +5,8 @@
   "description": "Container-side agent runner for HappyClaw",
   "main": "dist/index.js",
   "scripts": {
+    "postinstall": "npm --prefix ../agent-runner-core install",
+    "prebuild": "if [ ! -d ../agent-runner-core/node_modules ]; then npm --prefix ../agent-runner-core install; fi && npm --prefix ../agent-runner-core run build",
     "build": "tsc",
     "start": "node dist/index.js"
   },

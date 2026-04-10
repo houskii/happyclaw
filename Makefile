@@ -1,7 +1,7 @@
 .PHONY: dev dev-backend dev-web build build-backend build-web start \
-       typecheck typecheck-backend typecheck-web typecheck-agent-runner typecheck-memory-agent \
+       typecheck typecheck-backend typecheck-web typecheck-agent-runner typecheck-agent-runner-core typecheck-memory-agent \
        format format-check install clean reset-init update-sdk ensure-latest-sdk sync-types \
-       backup restore help _ensure-docker-image build-memory-agent
+       backup restore help _ensure-docker-image build-memory-agent build-agent-runner-core
 
 # ─── Runtime Detection ──────────────────────────────────────
 # 优先使用 bun（跳过编译、启动更快），fallback 到 npm + tsx + node
@@ -22,8 +22,9 @@ endif
 # ─── Development ─────────────────────────────────────────────
 
 dev: ## 启动前后端（首次自动安装依赖和构建容器镜像）
-	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
+	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner-core/package.json -nt container/agent-runner-core/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
 	@$(MAKE) _ensure-docker-image
+	@$(MAKE) build-agent-runner-core
 	@(cd container/agent-runner && $(PKG) run build >/dev/null 2>&1) || (cd container/agent-runner && $(PKG) run build)
 	@(cd container/memory-agent && npm run build >/dev/null 2>&1) || (cd container/memory-agent && npm run build)
 	@echo "🚀 使用 $(PKG) 启动..."
@@ -37,9 +38,8 @@ dev-web: ## 仅启动前端
 
 # ─── Build ───────────────────────────────────────────────────
 
-build: sync-types ## 编译前后端及 agent-runner
+build: sync-types build-agent-runner-core ## 编译前后端及 agent-runner
 	$(PKG) run build:all
-	@(cd container/agent-runner && $(PKG) run build >/dev/null 2>&1) || (cd container/agent-runner && $(PKG) run build)
 	@(cd container/memory-agent && npm run build >/dev/null 2>&1) || (cd container/memory-agent && npm run build)
 	@touch .build-sentinel
 
@@ -55,8 +55,9 @@ build-memory-agent: ## 仅编译 memory-agent
 # ─── Production ──────────────────────────────────────────────
 
 start: ensure-latest-sdk ## 一键启动生产环境
-	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
+	@if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ web/package.json -nt web/node_modules ] || [ container/agent-runner-core/package.json -nt container/agent-runner-core/node_modules ] || [ container/agent-runner/package.json -nt container/agent-runner/node_modules ]; then echo "📦 依赖有更新，安装依赖..."; $(MAKE) install; fi
 	@$(MAKE) _ensure-docker-image
+	@$(MAKE) build-agent-runner-core
 ifeq ($(HAS_BUN),1)
 	@NEED_SYNC=0; \
 	for target in src/stream-event.types.ts web/src/stream-event.types.ts container/agent-runner/src/stream-event.types.ts src/image-detector.ts container/agent-runner/src/image-detector.ts src/channel-prefixes.ts container/agent-runner/src/channel-prefixes.ts; do \
@@ -121,7 +122,7 @@ endif
 
 # ─── Quality ─────────────────────────────────────────────────
 
-typecheck: sync-types typecheck-backend typecheck-web typecheck-agent-runner typecheck-memory-agent ## 全量类型检查
+typecheck: sync-types typecheck-backend typecheck-web typecheck-agent-runner-core typecheck-agent-runner typecheck-memory-agent ## 全量类型检查
 	@./scripts/check-stream-event-sync.sh
 
 typecheck-backend:
@@ -129,6 +130,9 @@ typecheck-backend:
 
 typecheck-web:
 	cd web && $(RUN) tsc --noEmit
+
+typecheck-agent-runner-core:
+	cd container/agent-runner-core && $(RUN) tsc --noEmit
 
 typecheck-agent-runner:
 	cd container/agent-runner && $(RUN) tsc --noEmit
@@ -148,7 +152,7 @@ format-check: ## 检查代码格式
 # ─── Docker Image ─────────────────────────────────────────────
 
 # Docker 镜像源文件：Dockerfile、entrypoint.sh、agent-runner 源码
-DOCKER_SRC := container/Dockerfile container/entrypoint.sh $(wildcard container/agent-runner/src/*.ts) $(wildcard container/agent-runner/prompts/*)
+DOCKER_SRC := container/Dockerfile container/entrypoint.sh container/agent-runner-core/package.json container/agent-runner-core/tsconfig.json $(wildcard container/agent-runner-core/src/*.ts) $(wildcard container/agent-runner-core/src/plugins/*.ts) $(wildcard container/agent-runner/src/*.ts) $(wildcard container/agent-runner/src/**/*.ts) $(wildcard container/agent-runner/prompts/*)
 
 _ensure-docker-image: ## (内部) 检测 Docker 镜像是否需要构建/重建
 	@if command -v docker >/dev/null 2>&1; then \
@@ -200,16 +204,19 @@ install: ## 安装全部依赖并编译 agent-runner
 	$(PKG) install
 	@# node-pty 的 spawn-helper 预构建二进制可能缺少可执行权限，导致 PTY 模式失败
 	@chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true
+	cd container/agent-runner-core && $(PKG) install
+	cd container/agent-runner-core && $(PKG) run build
 	cd container/agent-runner && $(PKG) install
 	cd container/agent-runner && $(PKG) run build
 	npm --prefix container/memory-agent install
 	npm --prefix container/memory-agent run build
 	cd web && $(PKG) install
-	@touch node_modules web/node_modules container/agent-runner/node_modules container/memory-agent/node_modules
+	@touch node_modules web/node_modules container/agent-runner-core/node_modules container/agent-runner/node_modules container/memory-agent/node_modules
 
 clean: ## 清理构建产物
 	rm -rf dist
 	rm -rf web/dist
+	rm -rf container/agent-runner-core/dist
 	rm -rf container/agent-runner/dist
 	rm -f .build-sentinel
 	rm -rf container/memory-agent/dist
@@ -275,3 +282,6 @@ help: ## 显示帮助
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+build-agent-runner-core: ## 编译 agent-runner-core
+	@if [ ! -d container/agent-runner-core/node_modules ] || [ container/agent-runner-core/package.json -nt container/agent-runner-core/node_modules ]; then cd container/agent-runner-core && $(PKG) install; fi
+	@(cd container/agent-runner-core && $(PKG) run build >/dev/null 2>&1) || (cd container/agent-runner-core && $(PKG) run build)
