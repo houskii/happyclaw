@@ -15,6 +15,7 @@ import {
 export interface CodexSessionConfig {
   model?: string;
   thinkingEffort?: string;
+  serviceTier?: string;
   workingDirectory: string;
   additionalDirectories?: string[];
   /** Path to MCP server entry point for HappyClaw tools. */
@@ -44,6 +45,9 @@ export class CodexSession {
         ...(codexOptions?.config || {}),
         ...(config.modelInstructionsFile
           ? { model_instructions_file: config.modelInstructionsFile }
+          : {}),
+        ...(config.serviceTier
+          ? { service_tier: config.serviceTier }
           : {}),
         ...(config.mcpServerPath || config.userMcpServers
           ? {

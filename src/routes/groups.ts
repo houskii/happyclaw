@@ -162,6 +162,7 @@ interface GroupPayloadItem {
   claude_thinking_effort?: string | null;
   codex_model?: string;
   codex_thinking_effort?: string | null;
+  codex_service_tier?: 'fast' | 'flex' | null;
   model?: string;
   thinking_effort?: string | null;
   context_compression?: string;
@@ -279,6 +280,7 @@ function buildGroupsPayload(user: AuthUser): Record<string, GroupPayloadItem> {
       claude_thinking_effort: group.claude_thinking_effort ?? null,
       codex_model: group.codex_model ?? undefined,
       codex_thinking_effort: group.codex_thinking_effort ?? null,
+      codex_service_tier: group.codex_service_tier ?? null,
       model: group.model ?? undefined,
       thinking_effort: group.thinking_effort ?? null,
       context_compression: group.context_compression ?? 'off',
@@ -394,6 +396,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const claudeThinkingEffort = validation.data.claude_thinking_effort;
   const codexModel = validation.data.codex_model;
   const codexThinkingEffort = validation.data.codex_thinking_effort;
+  const codexServiceTier = validation.data.codex_service_tier;
   const model = validation.data.model;
   const thinkingEffort = validation.data.thinking_effort;
   const contextCompression = validation.data.context_compression;
@@ -607,6 +610,9 @@ groupRoutes.post('/', authMiddleware, async (c) => {
   const now = new Date().toISOString();
 
   const defaultLlmBinding = getDefaultLlmBinding();
+  const targetProvider = llmProvider ?? defaultLlmBinding.llm_provider;
+  const defaultCodexServiceTier =
+    getSystemSettings().defaultCodexServiceTier || undefined;
   const group: RegisteredGroup = {
     name,
     folder,
@@ -616,11 +622,13 @@ groupRoutes.post('/', authMiddleware, async (c) => {
     initSourcePath: executionMode !== 'host' ? initSourcePath : undefined,
     initGitUrl: executionMode !== 'host' ? initGitUrl : undefined,
     created_by: authUser.id,
-    llm_provider: llmProvider ?? defaultLlmBinding.llm_provider,
+    llm_provider: targetProvider,
     claude_model: claudeModel,
     claude_thinking_effort: claudeThinkingEffort,
     codex_model: codexModel,
     codex_thinking_effort: codexThinkingEffort,
+    codex_service_tier:
+      codexServiceTier ?? (targetProvider === 'openai' ? defaultCodexServiceTier : undefined),
     model: model ?? defaultLlmBinding.model,
     thinking_effort: thinkingEffort,
     context_compression: contextCompression,
@@ -704,6 +712,7 @@ groupRoutes.post('/', authMiddleware, async (c) => {
       claude_thinking_effort: group.claude_thinking_effort ?? null,
       codex_model: group.codex_model,
       codex_thinking_effort: group.codex_thinking_effort ?? null,
+      codex_service_tier: group.codex_service_tier ?? null,
       model: group.model,
       thinking_effort: group.thinking_effort ?? null,
       context_compression: group.context_compression ?? 'off',
@@ -740,6 +749,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     claude_thinking_effort,
     codex_model,
     codex_thinking_effort,
+    codex_service_tier,
     model,
     thinking_effort,
     context_compression,
@@ -759,6 +769,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     claude_thinking_effort === undefined &&
     codex_model === undefined &&
     codex_thinking_effort === undefined &&
+    codex_service_tier === undefined &&
     model === undefined &&
     thinking_effort === undefined &&
     context_compression === undefined &&
@@ -850,7 +861,17 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     !name &&
     activation_mode === undefined &&
     execution_mode === undefined &&
-    custom_cwd === undefined;
+    custom_cwd === undefined &&
+    llm_provider === undefined &&
+    claude_model === undefined &&
+    claude_thinking_effort === undefined &&
+    codex_model === undefined &&
+    codex_thinking_effort === undefined &&
+    codex_service_tier === undefined &&
+    model === undefined &&
+    thinking_effort === undefined &&
+    context_compression === undefined &&
+    knowledge_extraction === undefined;
   if (isPinOnly) {
     if (
       !canAccessGroup(
@@ -901,6 +922,7 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
     claude_thinking_effort !== undefined ||
     codex_model !== undefined ||
     codex_thinking_effort !== undefined ||
+    codex_service_tier !== undefined ||
     model !== undefined ||
     thinking_effort !== undefined ||
     context_compression !== undefined ||
@@ -947,6 +969,10 @@ groupRoutes.patch('/:jid', authMiddleware, async (c) => {
         codex_thinking_effort !== undefined
           ? codex_thinking_effort ?? undefined
           : existing.codex_thinking_effort,
+      codex_service_tier:
+        codex_service_tier !== undefined
+          ? codex_service_tier ?? undefined
+          : existing.codex_service_tier,
       model: model !== undefined ? model ?? undefined : existing.model,
       thinking_effort:
         thinking_effort !== undefined ? thinking_effort ?? undefined : existing.thinking_effort,

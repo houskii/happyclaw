@@ -14,6 +14,7 @@ export interface FlowRuntimeSettings {
   claude_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
   codex_model?: string | null;
   codex_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+  codex_service_tier?: 'fast' | 'flex' | null;
   model?: string;
   thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
   context_compression?: string;
@@ -1187,6 +1188,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (options?.claude_thinking_effort !== undefined) body.claude_thinking_effort = options.claude_thinking_effort;
       if (options?.codex_model !== undefined) body.codex_model = options.codex_model?.trim() || null;
       if (options?.codex_thinking_effort !== undefined) body.codex_thinking_effort = options.codex_thinking_effort;
+      if (options?.codex_service_tier !== undefined) body.codex_service_tier = options.codex_service_tier;
       if (options?.model?.trim()) body.model = options.model.trim();
       if (options?.thinking_effort) body.thinking_effort = options.thinking_effort;
       if (options?.context_compression?.trim()) body.context_compression = options.context_compression.trim();
@@ -1242,6 +1244,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (updates.claude_thinking_effort !== undefined) body.claude_thinking_effort = updates.claude_thinking_effort;
       if (updates.codex_model !== undefined) body.codex_model = updates.codex_model?.trim() || null;
       if (updates.codex_thinking_effort !== undefined) body.codex_thinking_effort = updates.codex_thinking_effort;
+      if (updates.codex_service_tier !== undefined) body.codex_service_tier = updates.codex_service_tier;
       if (updates.model !== undefined) body.model = updates.model.trim() || null;
       if (updates.thinking_effort !== undefined) body.thinking_effort = updates.thinking_effort;
       if (updates.context_compression !== undefined) {

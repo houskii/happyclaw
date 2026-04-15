@@ -18,6 +18,7 @@ import {
   BillingAuditEventType,
   BillingAuditLog,
   BillingPlan,
+  CodexServiceTier,
   DailyUsage,
   ExecutionMode,
   GroupMember,
@@ -678,6 +679,7 @@ export function initDatabase(): void {
   ensureColumn('registered_groups', 'claude_thinking_effort', 'TEXT');
   ensureColumn('registered_groups', 'codex_model', 'TEXT');
   ensureColumn('registered_groups', 'codex_thinking_effort', 'TEXT');
+  ensureColumn('registered_groups', 'codex_service_tier', 'TEXT');
   ensureColumn('registered_groups', 'context_compression', 'TEXT');
   ensureColumn('registered_groups', 'knowledge_extraction', 'INTEGER DEFAULT 0');
   ensureColumn('messages', 'token_usage', 'TEXT');
@@ -731,12 +733,13 @@ export function initDatabase(): void {
           claude_thinking_effort TEXT,
           codex_model TEXT,
           codex_thinking_effort TEXT,
+          codex_service_tier TEXT,
           context_compression TEXT,
           knowledge_extraction INTEGER DEFAULT 0
         );
         INSERT INTO registered_groups_new
-          (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, llm_provider, model, thinking_effort, claude_model, claude_thinking_effort, codex_model, codex_thinking_effort, context_compression, knowledge_extraction)
-          SELECT jid, name, folder, added_at, container_config, execution_mode, custom_cwd, NULL, NULL, NULL, 0, 'claude', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0 FROM registered_groups;
+          (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, llm_provider, model, thinking_effort, claude_model, claude_thinking_effort, codex_model, codex_thinking_effort, codex_service_tier, context_compression, knowledge_extraction)
+          SELECT jid, name, folder, added_at, container_config, execution_mode, custom_cwd, NULL, NULL, NULL, 0, 'claude', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0 FROM registered_groups;
         DROP TABLE registered_groups;
         ALTER TABLE registered_groups_new RENAME TO registered_groups;
       `);
@@ -797,6 +800,7 @@ export function initDatabase(): void {
       'claude_thinking_effort',
       'codex_model',
       'codex_thinking_effort',
+      'codex_service_tier',
       'context_compression',
       'knowledge_extraction',
     ],
@@ -2322,6 +2326,15 @@ function parseThinkingEffort(
   return undefined;
 }
 
+function parseCodexServiceTier(
+  raw: string | null,
+): CodexServiceTier | undefined {
+  if (raw === 'fast' || raw === 'flex') {
+    return raw;
+  }
+  return undefined;
+}
+
 /** Raw row shape from registered_groups table — single source of truth for column mapping. */
 type RegisteredGroupRow = {
   jid: string;
@@ -2350,6 +2363,7 @@ type RegisteredGroupRow = {
   claude_thinking_effort: string | null;
   codex_model: string | null;
   codex_thinking_effort: string | null;
+  codex_service_tier: string | null;
   context_compression: string | null;
   knowledge_extraction: number | null;
 };
@@ -2360,6 +2374,7 @@ function resolveProviderSpecificSettings(row: RegisteredGroupRow): {
   claudeThinkingEffort?: ThinkingEffort;
   codexModel?: string;
   codexThinkingEffort?: ThinkingEffort;
+  codexServiceTier?: CodexServiceTier;
   effectiveModel?: string;
   effectiveThinkingEffort?: ThinkingEffort;
 } {
@@ -2376,6 +2391,7 @@ function resolveProviderSpecificSettings(row: RegisteredGroupRow): {
   const codexThinkingEffort =
     parseThinkingEffort(row.codex_thinking_effort) ??
     (llmProvider === 'openai' ? legacyThinkingEffort : undefined);
+  const codexServiceTier = parseCodexServiceTier(row.codex_service_tier);
 
   return {
     llmProvider,
@@ -2383,6 +2399,7 @@ function resolveProviderSpecificSettings(row: RegisteredGroupRow): {
     claudeThinkingEffort,
     codexModel,
     codexThinkingEffort,
+    codexServiceTier,
     effectiveModel: llmProvider === 'openai' ? codexModel : claudeModel,
     effectiveThinkingEffort:
       llmProvider === 'openai' ? codexThinkingEffort : claudeThinkingEffort,
@@ -2418,6 +2435,7 @@ function parseGroupRow(
     claude_thinking_effort: providerSettings.claudeThinkingEffort,
     codex_model: providerSettings.codexModel,
     codex_thinking_effort: providerSettings.codexThinkingEffort,
+    codex_service_tier: providerSettings.codexServiceTier,
     model: providerSettings.effectiveModel,
     thinking_effort: providerSettings.effectiveThinkingEffort,
     context_compression: row.context_compression ?? undefined,
@@ -2462,13 +2480,14 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   const codexThinkingEffort =
     group.codex_thinking_effort ??
     (llmProvider === 'openai' ? group.thinking_effort : undefined);
+  const codexServiceTier = group.codex_service_tier;
   const effectiveModel = llmProvider === 'openai' ? codexModel : claudeModel;
   const effectiveThinkingEffort =
     llmProvider === 'openai' ? codexThinkingEffort : claudeThinkingEffort;
 
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps, llm_provider, model, thinking_effort, claude_model, claude_thinking_effort, codex_model, codex_thinking_effort, context_compression, knowledge_extraction)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, added_at, container_config, execution_mode, custom_cwd, init_source_path, init_git_url, created_by, is_home, selected_skills, target_agent_id, target_main_jid, reply_policy, require_mention, activation_mode, mcp_mode, selected_mcps, llm_provider, model, thinking_effort, claude_model, claude_thinking_effort, codex_model, codex_thinking_effort, codex_service_tier, context_compression, knowledge_extraction)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     jid,
     group.name,
@@ -2496,6 +2515,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
     claudeThinkingEffort ?? null,
     codexModel ?? null,
     codexThinkingEffort ?? null,
+    codexServiceTier ?? null,
     group.context_compression ?? null,
     group.knowledge_extraction === true ? 1 : 0,
   );

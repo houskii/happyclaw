@@ -149,6 +149,9 @@ export function SystemSettingsSection() {
   const [defaultOpenaiThinkingEffort, setDefaultOpenaiThinkingEffort] = useState<
     'low' | 'medium' | 'high' | 'xhigh' | ''
   >('');
+  const [defaultOpenaiServiceTier, setDefaultOpenaiServiceTier] = useState<
+    'fast' | 'flex' | ''
+  >('');
   const [anthropicUsageApiUrl, setAnthropicUsageApiUrl] = useState('');
   const [openaiUsageApiUrl, setOpenaiUsageApiUrl] = useState('');
   const [anthropicSdkBaseUrl, setAnthropicSdkBaseUrl] = useState('');
@@ -193,6 +196,9 @@ export function SystemSettingsSection() {
         );
         setDefaultOpenaiThinkingEffort(
           data.defaultOpenaiThinkingEffort ?? data.defaultCodexThinkingEffort ?? '',
+        );
+        setDefaultOpenaiServiceTier(
+          data.defaultOpenaiServiceTier ?? data.defaultCodexServiceTier ?? '',
         );
         setAnthropicUsageApiUrl(data.anthropicUsageApiUrl ?? data.claudeUsageApiUrl ?? '');
         setOpenaiUsageApiUrl(data.openaiUsageApiUrl ?? data.codexUsageApiUrl ?? '');
@@ -251,6 +257,7 @@ export function SystemSettingsSection() {
         defaultOpenaiModel,
         defaultAnthropicThinkingEffort,
         defaultOpenaiThinkingEffort,
+        defaultOpenaiServiceTier,
         anthropicUsageApiUrl,
         openaiUsageApiUrl,
         anthropicSdkBaseUrl,
@@ -284,6 +291,9 @@ export function SystemSettingsSection() {
       );
       setDefaultOpenaiThinkingEffort(
         data.defaultOpenaiThinkingEffort ?? data.defaultCodexThinkingEffort ?? '',
+      );
+      setDefaultOpenaiServiceTier(
+        data.defaultOpenaiServiceTier ?? data.defaultCodexServiceTier ?? '',
       );
       setAnthropicUsageApiUrl(data.anthropicUsageApiUrl ?? data.claudeUsageApiUrl ?? '');
       setOpenaiUsageApiUrl(data.openaiUsageApiUrl ?? data.codexUsageApiUrl ?? '');
@@ -619,6 +629,27 @@ export function SystemSettingsSection() {
           </select>
           <p className="text-xs text-muted-foreground mt-1">
             留空时由 Codex / GPT 模型默认值决定推理强度。
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-1">
+            OpenAI 默认服务档位
+          </label>
+          <select
+            value={defaultOpenaiServiceTier}
+            onChange={(e) =>
+              setDefaultOpenaiServiceTier(
+                e.target.value as 'fast' | 'flex' | '',
+              )
+            }
+            className="max-w-md w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="">跟随默认(Standard)</option>
+            <option value="fast">Fast</option>
+            <option value="flex">Flex</option>
+          </select>
+          <p className="text-xs text-muted-foreground mt-1">
+            底层 Codex CLI 通过省略 `service_tier` 表示标准档；选择 Fast/Flex 时才会显式传参。
           </p>
         </div>
       </div>

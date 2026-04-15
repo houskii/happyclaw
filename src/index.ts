@@ -157,6 +157,7 @@ import { getDefaultLlmBinding } from './llm-defaults.js';
 import { removeFlowArtifacts } from './file-manager.js';
 import {
   AgentStatus,
+  CodexServiceTier,
   MessageCursor,
   NewMessage,
   RegisteredGroup,
@@ -1339,6 +1340,7 @@ function parseModifyCommandArgs(rawArgs: string): {
   claudeThinkingEffort?: ThinkingEffort | null;
   codexModel?: string | null;
   codexThinkingEffort?: ThinkingEffort | null;
+  codexServiceTier?: CodexServiceTier | null;
   setEnv: Record<string, string>;
   unsetEnv: string[];
   error?: string;
@@ -1354,6 +1356,7 @@ function parseModifyCommandArgs(rawArgs: string): {
   let claudeThinkingEffort: ThinkingEffort | null | undefined;
   let codexModel: string | null | undefined;
   let codexThinkingEffort: ThinkingEffort | null | undefined;
+  let codexServiceTier: CodexServiceTier | null | undefined;
   const setEnv: Record<string, string> = {};
   const unsetEnv: string[] = [];
   const normalizeModelArg = (value: string | undefined, flag: string) => {
@@ -1384,6 +1387,22 @@ function parseModifyCommandArgs(rawArgs: string): {
       };
     }
     return { value: normalized as ThinkingEffort };
+  };
+  const normalizeCodexServiceTierArg = (
+    value: string | undefined,
+    flag: string,
+  ): { value?: CodexServiceTier | null; error?: string } => {
+    if (!value) return { error: `缺少 ${flag} 的值` };
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || normalized === 'default' || normalized === 'standard') {
+      return { value: null };
+    }
+    if (normalized !== 'fast' && normalized !== 'flex') {
+      return {
+        error: `${flag} 仅支持 fast、flex、standard 或 default`,
+      };
+    }
+    return { value: normalized as CodexServiceTier };
   };
 
   for (let i = 0; i < tokens.length; i += 1) {
@@ -1461,6 +1480,16 @@ function parseModifyCommandArgs(rawArgs: string): {
       i += 1;
       continue;
     }
+    if (token === '--codex-service-tier') {
+      const result = normalizeCodexServiceTierArg(
+        tokens[i + 1],
+        '--codex-service-tier',
+      );
+      if (result.error) return { help, setEnv, unsetEnv, error: result.error };
+      codexServiceTier = result.value;
+      i += 1;
+      continue;
+    }
     if (token === '--env') {
       const value = tokens[i + 1];
       if (!value) return { help, setEnv, unsetEnv, error: '缺少 --env 的值' };
@@ -1501,6 +1530,7 @@ function parseModifyCommandArgs(rawArgs: string): {
     claudeThinkingEffort,
     codexModel,
     codexThinkingEffort,
+    codexServiceTier,
     setEnv,
     unsetEnv,
   };
@@ -1509,12 +1539,13 @@ function parseModifyCommandArgs(rawArgs: string): {
 function formatModifyCommandHelp(): string {
   return (
     '用法：\n' +
-    '/modify [--provider claude|openai] [--mode container|host] [--workspace <目录>] [--model <模型>] [--thinking <强度>] [--claude-model <模型>] [--claude-thinking <强度>] [--codex-model <模型>] [--codex-thinking <强度>] [--env KEY=VALUE] [--unset-env KEY]\n\n' +
+    '/modify [--provider claude|openai] [--mode container|host] [--workspace <目录>] [--model <模型>] [--thinking <强度>] [--claude-model <模型>] [--claude-thinking <强度>] [--codex-model <模型>] [--codex-thinking <强度>] [--codex-service-tier <standard|fast|flex>] [--env KEY=VALUE] [--unset-env KEY]\n\n' +
     '示例：\n' +
     '/modify --provider openai\n' +
     '/modify --model gpt-5.4 --thinking xhigh\n' +
     '/modify --claude-model opus --claude-thinking high\n' +
     '/modify --codex-model gpt-5.4-mini --codex-thinking medium\n' +
+    '/modify --codex-service-tier fast\n' +
     '/modify --mode host --workspace /Users/me/projects/support\n' +
     '/modify --env HTTP_PROXY=http://127.0.0.1:7890 --env NO_PROXY=localhost,127.0.0.1\n' +
     '/modify --unset-env HTTP_PROXY\n\n' +
@@ -1522,6 +1553,7 @@ function formatModifyCommandHelp(): string {
     '- 默认修改当前聊天绑定的工作区\n' +
     '- --model / --thinking 会写入当前或显式指定 provider 对应的默认运行参数\n' +
     '- --claude-* / --codex-* 用于分别设置两套 provider 参数\n' +
+    '- Codex 服务档位支持 fast / flex；传 default 或 standard 表示回到标准档（即不显式传参）\n' +
     '- 推理强度支持 low / medium / high / xhigh / default\n' +
     '- --workspace 仅在 host 模式下生效，表示宿主机工作目录（绝对路径）\n' +
     '- --env / --unset-env 修改当前工作区的环境变量覆盖，并在容器模式下触发重建'
@@ -1548,6 +1580,10 @@ function resolveWorkspaceRuntimeDetails(
     group.codex_thinking_effort ??
     settings.defaultCodexThinkingEffort ??
     undefined;
+  const codexServiceTier =
+    group.codex_service_tier ??
+    settings.defaultCodexServiceTier ??
+    undefined;
   const effectiveModel = llmProvider === 'claude' ? claudeModel : codexModel;
   const effectiveThinkingEffort =
     llmProvider === 'claude'
@@ -1565,6 +1601,7 @@ function resolveWorkspaceRuntimeDetails(
     claudeThinkingEffort,
     codexModel,
     codexThinkingEffort,
+    codexServiceTier,
     customCwd: group.executionMode === 'host' ? group.customCwd ?? null : null,
     contextCompression: group.context_compression ?? null,
     knowledgeExtraction: group.knowledge_extraction === true,
@@ -1982,7 +2019,8 @@ async function handleModifyCommand(
     parsed.claudeModel !== undefined ||
     parsed.claudeThinkingEffort !== undefined ||
     parsed.codexModel !== undefined ||
-    parsed.codexThinkingEffort !== undefined;
+    parsed.codexThinkingEffort !== undefined ||
+    parsed.codexServiceTier !== undefined;
 
   if (!hasRuntimeChanges && !hasEnvChanges) {
     return formatModifyCommandHelp();
@@ -2013,6 +2051,8 @@ async function handleModifyCommand(
       (parsed.thinkingEffort !== undefined && targetProvider === 'openai'
         ? parsed.thinkingEffort
         : existing.codex_thinking_effort);
+    const nextCodexServiceTier =
+      parsed.codexServiceTier ?? existing.codex_service_tier;
     const effectiveModel =
       targetProvider === 'claude' ? nextClaudeModel : nextCodexModel;
     const effectiveThinkingEffort =
@@ -2028,6 +2068,7 @@ async function handleModifyCommand(
       claude_thinking_effort: nextClaudeThinkingEffort ?? undefined,
       codex_model: nextCodexModel ?? undefined,
       codex_thinking_effort: nextCodexThinkingEffort ?? undefined,
+      codex_service_tier: nextCodexServiceTier ?? undefined,
       model: effectiveModel ?? undefined,
       thinking_effort: effectiveThinkingEffort ?? undefined,
     };
@@ -2081,6 +2122,11 @@ async function handleModifyCommand(
   if (parsed.codexThinkingEffort !== undefined) {
     summary.push(
       `Codex 推理强度=${parsed.codexThinkingEffort ?? '跟随默认值'}`,
+    );
+  }
+  if (parsed.codexServiceTier !== undefined) {
+    summary.push(
+      `Codex 服务档位=${parsed.codexServiceTier ?? 'Standard(默认)'}`,
     );
   }
   if (setEnvKeys.length > 0) {
@@ -2154,6 +2200,8 @@ async function handleNewCommand(
   const now = new Date().toISOString();
   const defaultLlmBinding = getDefaultLlmBinding();
   const llmProvider = parsed.llmProvider ?? defaultLlmBinding.llm_provider;
+  const defaultCodexServiceTier =
+    getSystemSettings().defaultCodexServiceTier || undefined;
 
   const newGroup: RegisteredGroup = {
     name,
@@ -2176,6 +2224,8 @@ async function handleNewCommand(
       llmProvider === 'openai'
         ? defaultLlmBinding.thinking_effort ?? undefined
         : undefined,
+    codex_service_tier:
+      llmProvider === 'openai' ? defaultCodexServiceTier : undefined,
   };
 
   // Register the workspace
@@ -2325,6 +2375,8 @@ async function handleFromAppCommand(
   const targetProvider = parsed.llmProvider ?? defaultBinding.llm_provider;
   const defaultCodexThinkingEffort =
     systemSettings.defaultCodexThinkingEffort || undefined;
+  const defaultCodexServiceTier =
+    systemSettings.defaultCodexServiceTier || undefined;
   const targetModel = targetProvider === 'claude'
     ? (sourceGroup.claude_model
       ?? sourceGroup.model
@@ -2345,6 +2397,11 @@ async function handleFromAppCommand(
       ?? defaultCodexThinkingEffort
       ?? defaultBinding.thinking_effort
       ?? undefined);
+  const targetCodexServiceTier = targetProvider === 'openai'
+    ? (sourceGroup.codex_service_tier
+      ?? defaultCodexServiceTier
+      ?? undefined)
+    : undefined;
 
   const newGroup: RegisteredGroup = {
     name: workspaceName,
@@ -2360,6 +2417,7 @@ async function handleFromAppCommand(
     codex_model: targetProvider === 'openai' ? targetModel : undefined,
     codex_thinking_effort:
       targetProvider === 'openai' ? targetThinkingEffort : undefined,
+    codex_service_tier: targetCodexServiceTier,
     model: targetModel,
     thinking_effort: targetThinkingEffort,
     context_compression: sourceGroup.context_compression ?? undefined,
@@ -7443,6 +7501,9 @@ function buildOnNewChat(
       const folder = `flow-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const now = new Date().toISOString();
       const owner = getUserById(userId);
+      const defaultCodexServiceTier =
+        getSystemSettings().defaultCodexServiceTier || undefined;
+      const defaultBinding = getDefaultLlmBinding();
       const execMode =
         prefs.autoCreateExecutionMode ||
         resolveDefaultWorkspaceExecutionMode({
@@ -7456,7 +7517,11 @@ function buildOnNewChat(
         added_at: now,
         executionMode: execMode,
         created_by: userId,
-        ...getDefaultLlmBinding(),
+        ...defaultBinding,
+        codex_service_tier:
+          defaultBinding.llm_provider === 'openai'
+            ? defaultCodexServiceTier
+            : undefined,
       };
       registerGroup(newJid, newGroup);
       ensureChatExists(newJid);

@@ -200,6 +200,7 @@ export interface WorkspaceRuntimeDetails {
   claudeThinkingEffort?: string | null;
   codexModel?: string | null;
   codexThinkingEffort?: string | null;
+  codexServiceTier?: string | null;
   contextCompression?: string | null;
   knowledgeExtraction?: boolean;
   replyPolicy?: string | null;
@@ -225,6 +226,21 @@ function formatThinkingEffortValue(value?: string | null): string {
   }
 }
 
+function formatCodexServiceTierValue(
+  value?: string | null,
+  fallbackLabel = '跟随系统默认(Standard)',
+): string {
+  if (!value) return fallbackLabel;
+  switch (value) {
+    case 'fast':
+      return 'Fast';
+    case 'flex':
+      return 'Flex';
+    default:
+      return value;
+  }
+}
+
 export function formatWorkspaceRuntimeDetails(
   details: WorkspaceRuntimeDetails,
 ): string {
@@ -235,7 +251,7 @@ export function formatWorkspaceRuntimeDetails(
     `🤖 当前 Provider: ${details.llmProvider}`,
     `🧠 当前生效: ${formatModelValue(details.effectiveModel)} / ${formatThinkingEffortValue(details.effectiveThinkingEffort)}`,
     `Claude: ${formatModelValue(details.claudeModel)} / ${formatThinkingEffortValue(details.claudeThinkingEffort)}`,
-    `Codex: ${formatModelValue(details.codexModel)} / ${formatThinkingEffortValue(details.codexThinkingEffort)}`,
+    `Codex: ${formatModelValue(details.codexModel)} / ${formatThinkingEffortValue(details.codexThinkingEffort)} / ${formatCodexServiceTierValue(details.codexServiceTier)}`,
   ];
 
   if (details.customCwd) {

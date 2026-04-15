@@ -38,6 +38,9 @@ export function GroupDetail({ group }: GroupDetailProps) {
   const [codexThinkingEffort, setCodexThinkingEffort] = useState<
     'default' | 'low' | 'medium' | 'high' | 'xhigh'
   >(effectiveGroup.codex_thinking_effort ?? 'default');
+  const [codexServiceTier, setCodexServiceTier] = useState<
+    'default' | 'fast' | 'flex'
+  >(effectiveGroup.codex_service_tier ?? 'default');
   const [contextCompression, setContextCompression] = useState(
     effectiveGroup.context_compression === 'off'
       ? ''
@@ -59,6 +62,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
     setCodexModel(effectiveGroup.codex_model ?? '');
     setClaudeThinkingEffort(effectiveGroup.claude_thinking_effort ?? 'default');
     setCodexThinkingEffort(effectiveGroup.codex_thinking_effort ?? 'default');
+    setCodexServiceTier(effectiveGroup.codex_service_tier ?? 'default');
     setContextCompression(
       effectiveGroup.context_compression === 'off'
         ? ''
@@ -73,6 +77,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
     effectiveGroup.claude_thinking_effort,
     effectiveGroup.codex_model,
     effectiveGroup.codex_thinking_effort,
+    effectiveGroup.codex_service_tier,
   ]);
 
   const hasRuntimeChanges = useMemo(() => {
@@ -82,6 +87,7 @@ export function GroupDetail({ group }: GroupDetailProps) {
       codexModel !== (effectiveGroup.codex_model ?? '') ||
       claudeThinkingEffort !== (effectiveGroup.claude_thinking_effort ?? 'default') ||
       codexThinkingEffort !== (effectiveGroup.codex_thinking_effort ?? 'default') ||
+      codexServiceTier !== (effectiveGroup.codex_service_tier ?? 'default') ||
       contextCompression !==
         (effectiveGroup.context_compression === 'off'
           ? ''
@@ -95,12 +101,14 @@ export function GroupDetail({ group }: GroupDetailProps) {
     effectiveGroup.claude_thinking_effort,
     effectiveGroup.codex_model,
     effectiveGroup.codex_thinking_effort,
+    effectiveGroup.codex_service_tier,
     effectiveGroup.knowledge_extraction,
     effectiveGroup.llm_provider,
     claudeModel,
     claudeThinkingEffort,
     codexModel,
     codexThinkingEffort,
+    codexServiceTier,
     knowledgeExtraction,
     llmProvider,
   ]);
@@ -126,6 +134,8 @@ export function GroupDetail({ group }: GroupDetailProps) {
         codex_model: codexModel,
         codex_thinking_effort:
           codexThinkingEffort === 'default' ? null : codexThinkingEffort,
+        codex_service_tier:
+          codexServiceTier === 'default' ? null : codexServiceTier,
         model,
         thinking_effort:
           thinkingEffort === 'default' ? null : thinkingEffort,
@@ -264,6 +274,27 @@ export function GroupDetail({ group }: GroupDetailProps) {
                   </SelectContent>
                 </Select>
               </div>
+
+              {llmProvider === 'openai' && (
+                <div>
+                  <Label className="mb-2 text-xs text-muted-foreground">服务档位</Label>
+                  <Select
+                    value={codexServiceTier}
+                    onValueChange={(value) =>
+                      setCodexServiceTier(value as 'default' | 'fast' | 'flex')
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">跟随默认(Standard)</SelectItem>
+                      <SelectItem value="fast">Fast</SelectItem>
+                      <SelectItem value="flex">Flex</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div>
                 <Label className="mb-2 text-xs text-muted-foreground">上下文压缩策略</Label>

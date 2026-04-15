@@ -36,6 +36,7 @@ export interface ContainerConfig {
 export type ExecutionMode = 'container' | 'host';
 export type WorkspaceLlmProvider = 'claude' | 'openai';
 export type ThinkingEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type CodexServiceTier = 'fast' | 'flex';
 
 export interface RegisteredGroup {
   name: string;
@@ -60,6 +61,7 @@ export interface RegisteredGroup {
   claude_thinking_effort?: ThinkingEffort; // Claude provider 的推理强度
   codex_model?: string; // Codex/OpenAI provider 的模型覆盖
   codex_thinking_effort?: ThinkingEffort; // Codex/OpenAI provider 的推理强度
+  codex_service_tier?: CodexServiceTier; // Codex/OpenAI provider 的服务档位
   model?: string; // 当前 provider 的生效模型（兼容旧字段）
   thinking_effort?: ThinkingEffort; // 当前 provider 的生效推理强度（兼容旧字段）
   context_compression?: string; // 上下文压缩模式（默认 'off'）

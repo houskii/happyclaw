@@ -392,6 +392,7 @@ function buildVolumeMounts(
   // LLM provider selection (default: claude)
   const llmProvider = group.llm_provider === 'openai' ? 'codex' : 'claude';
   envLines.push(`HAPPYCLAW_LLM_PROVIDER=${llmProvider}`);
+  const defaultCodexServiceTier = getSystemSettings().defaultCodexServiceTier || undefined;
 
   // Codex provider config:
   // - `api_key` mode injects OPENAI_* into the agent runtime
@@ -411,6 +412,10 @@ function buildVolumeMounts(
       envLines.push(`HAPPYCLAW_CODEX_MODEL=${group.model}`);
     } else if (codexProfile?.defaultModel) {
       envLines.push(`HAPPYCLAW_CODEX_MODEL=${codexProfile.defaultModel}`);
+    }
+    const codexServiceTier = group.codex_service_tier ?? defaultCodexServiceTier;
+    if (codexServiceTier) {
+      envLines.push(`HAPPYCLAW_CODEX_SERVICE_TIER=${codexServiceTier}`);
     }
     // Persist Codex session data (rollout JSONL + SQLite) so threads survive restarts
     const codexHomeDir = path.join(DATA_DIR, 'sessions', group.folder, 'codex-home');
@@ -1125,6 +1130,7 @@ export async function runHostAgent(
     const hostLlmProvider =
       group.llm_provider === 'openai' ? 'codex' : 'claude';
     hostEnv['HAPPYCLAW_LLM_PROVIDER'] = hostLlmProvider;
+    const defaultCodexServiceTier = getSystemSettings().defaultCodexServiceTier || undefined;
 
     const hostCodexConfig = getCodexProviderConfig();
     const hostCodexProfile =
@@ -1151,6 +1157,10 @@ export async function runHostAgent(
         hostEnv['HAPPYCLAW_CODEX_MODEL'] = group.model;
       } else if (hostCodexProfile?.defaultModel) {
         hostEnv['HAPPYCLAW_CODEX_MODEL'] = hostCodexProfile.defaultModel;
+      }
+      const codexServiceTier = group.codex_service_tier ?? defaultCodexServiceTier;
+      if (codexServiceTier) {
+        hostEnv['HAPPYCLAW_CODEX_SERVICE_TIER'] = codexServiceTier;
       }
     }
 

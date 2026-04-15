@@ -19,6 +19,7 @@ import { logger } from './logger.js';
 type CodexCtor = new (options?: {
   apiKey?: string;
   baseUrl?: string;
+  config?: Record<string, string>;
   env?: Record<string, string>;
 }) => {
   startThread: (options?: Record<string, unknown>) => {
@@ -45,7 +46,13 @@ async function loadCodexCtor(): Promise<CodexCtor> {
 
 export async function codexQuery(
   prompt: string,
-  opts?: { model?: string; timeout?: number; cwd?: string; reasoningEffort?: string },
+  opts?: {
+    model?: string;
+    timeout?: number;
+    cwd?: string;
+    reasoningEffort?: string;
+    serviceTier?: string;
+  },
 ): Promise<string | null> {
   const timeout = opts?.timeout ?? 60_000;
   const cwd = opts?.cwd || process.cwd();
@@ -53,6 +60,7 @@ export async function codexQuery(
   try {
     const Codex = await loadCodexCtor();
     const config = getCodexProviderConfig();
+    const settings = getSystemSettings();
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       CODEX_HOME: getCodexHomeDir(),
@@ -61,6 +69,7 @@ export async function codexQuery(
     const codexOptions: {
       apiKey?: string;
       baseUrl?: string;
+      config?: Record<string, string>;
       env: Record<string, string>;
     } = { env };
 
@@ -73,15 +82,22 @@ export async function codexQuery(
       delete codexOptions.env.OPENAI_BASE_URL;
     }
 
+    const serviceTier = opts?.serviceTier || settings.defaultCodexServiceTier || undefined;
+    if (serviceTier) {
+      codexOptions.config = { service_tier: serviceTier };
+    }
+
     const codex = new Codex(codexOptions);
     const thread = codex.startThread({
-      model: opts?.model || getSystemSettings().defaultCodexModel || undefined,
+      model: opts?.model || settings.defaultCodexModel || undefined,
       workingDirectory: cwd,
       skipGitRepoCheck: true,
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       ...(opts?.reasoningEffort
         ? { modelReasoningEffort: opts.reasoningEffort }
+        : settings.defaultCodexThinkingEffort
+          ? { modelReasoningEffort: settings.defaultCodexThinkingEffort }
         : {}),
     });
 

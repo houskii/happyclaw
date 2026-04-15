@@ -48,6 +48,7 @@ export interface CodexRunnerOptions {
   memoryDir: string;
   model: string;
   thinkingEffort?: string;
+  serviceTier?: string;
   loadUserMcpServers: () => Record<string, unknown>;
   skillsDir: string;
 }
@@ -130,6 +131,7 @@ export class CodexRunner implements AgentRunner {
     const sessionConfig: CodexSessionConfig = {
       model: this.opts.model,
       thinkingEffort: this.opts.thinkingEffort,
+      serviceTier: this.opts.serviceTier,
       workingDirectory: groupDir,
       additionalDirectories: [globalDir, memoryDir],
       mcpServerPath: this.mcpServerPath,

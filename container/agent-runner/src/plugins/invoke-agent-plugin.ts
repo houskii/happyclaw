@@ -139,8 +139,10 @@ async function invokeCodex(
   effort?: string,
 ): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
+  const serviceTier = process.env.HAPPYCLAW_CODEX_SERVICE_TIER;
   const codex = new Codex({
     ...(apiKey ? { apiKey } : {}),
+    ...(serviceTier ? { config: { service_tier: serviceTier } } : {}),
     env: {
       ...process.env as Record<string, string>,
       HAPPYCLAW_INVOKE_DEPTH: '1',

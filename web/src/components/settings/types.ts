@@ -122,6 +122,7 @@ export interface SystemSettings {
   defaultOpenaiModel: string;
   defaultAnthropicThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
   defaultOpenaiThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
+  defaultOpenaiServiceTier?: 'fast' | 'flex' | '';
   anthropicUsageApiUrl: string;
   openaiUsageApiUrl: string;
   anthropicSdkBaseUrl: string;
@@ -132,6 +133,7 @@ export interface SystemSettings {
   defaultCodexModel?: string;
   defaultClaudeThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
   defaultCodexThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
+  defaultCodexServiceTier?: 'fast' | 'flex' | '';
   claudeUsageApiUrl?: string;
   codexUsageApiUrl?: string;
   claudeSdkBaseUrl?: string;

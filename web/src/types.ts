@@ -22,6 +22,7 @@ export interface GroupInfo {
   claude_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
   codex_model?: string | null;
   codex_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+  codex_service_tier?: 'fast' | 'flex' | null;
   model?: string;
   thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
   context_compression?: string;

@@ -119,6 +119,7 @@ export const MessageCreateSchema = z
 
 const WorkspaceLlmProviderSchema = z.enum(['claude', 'openai']);
 const ThinkingEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh']);
+const CodexServiceTierSchema = z.enum(['fast', 'flex']);
 const TrimmedOptionalString = z
   .string()
   .optional()
@@ -149,6 +150,7 @@ export const GroupCreateSchema = z.object({
   claude_thinking_effort: ThinkingEffortSchema.optional(),
   codex_model: TrimmedOptionalString,
   codex_thinking_effort: ThinkingEffortSchema.optional(),
+  codex_service_tier: CodexServiceTierSchema.optional(),
   model: TrimmedOptionalString,
   thinking_effort: ThinkingEffortSchema.optional(),
   context_compression: TrimmedOptionalString,
@@ -225,6 +227,7 @@ export const GroupPatchSchema = z.object({
   claude_thinking_effort: ThinkingEffortSchema.nullable().optional(),
   codex_model: TrimmedNullableString,
   codex_thinking_effort: ThinkingEffortSchema.nullable().optional(),
+  codex_service_tier: CodexServiceTierSchema.nullable().optional(),
   model: TrimmedNullableString,
   thinking_effort: ThinkingEffortSchema.nullable().optional(),
   context_compression: TrimmedNullableString,
@@ -318,10 +321,12 @@ export const SystemSettingsSchema = z.object({
   defaultCodexModel: z.string().max(100).optional(),
   defaultClaudeThinkingEffort: ThinkingEffortSchema.or(z.literal('')).optional(),
   defaultCodexThinkingEffort: ThinkingEffortSchema.or(z.literal('')).optional(),
+  defaultCodexServiceTier: CodexServiceTierSchema.or(z.literal('')).optional(),
   defaultAnthropicModel: z.string().max(100).optional(),
   defaultOpenaiModel: z.string().max(100).optional(),
   defaultAnthropicThinkingEffort: ThinkingEffortSchema.or(z.literal('')).optional(),
   defaultOpenaiThinkingEffort: ThinkingEffortSchema.or(z.literal('')).optional(),
+  defaultOpenaiServiceTier: CodexServiceTierSchema.or(z.literal('')).optional(),
   claudeUsageApiUrl: z.string().max(2000).optional(),
   codexUsageApiUrl: z.string().max(2000).optional(),
   anthropicUsageApiUrl: z.string().max(2000).optional(),

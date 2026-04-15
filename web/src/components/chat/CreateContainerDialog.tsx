@@ -40,10 +40,12 @@ interface SystemDefaults {
   defaultOpenaiModel?: string;
   defaultAnthropicThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
   defaultOpenaiThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
+  defaultOpenaiServiceTier?: 'fast' | 'flex' | '';
   defaultClaudeModel?: string;
   defaultCodexModel?: string;
   defaultClaudeThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
   defaultCodexThinkingEffort?: 'low' | 'medium' | 'high' | 'xhigh' | '';
+  defaultCodexServiceTier?: 'fast' | 'flex' | '';
 }
 
 interface CreateContainerDialogProps {
@@ -71,10 +73,12 @@ export function CreateContainerDialog({
     defaultOpenaiModel: '',
     defaultAnthropicThinkingEffort: '',
     defaultOpenaiThinkingEffort: '',
+    defaultOpenaiServiceTier: '',
     defaultClaudeModel: '',
     defaultCodexModel: '',
     defaultClaudeThinkingEffort: '',
     defaultCodexThinkingEffort: '',
+    defaultCodexServiceTier: '',
   });
   const [defaultsLoaded, setDefaultsLoaded] = useState(false);
   const [llmProvider, setLlmProvider] = useState<'claude' | 'openai'>('claude');
@@ -85,6 +89,9 @@ export function CreateContainerDialog({
   >('default');
   const [codexThinkingEffort, setCodexThinkingEffort] = useState<
     'default' | 'low' | 'medium' | 'high' | 'xhigh'
+  >('default');
+  const [codexServiceTier, setCodexServiceTier] = useState<
+    'default' | 'fast' | 'flex'
   >('default');
   const [contextCompression, setContextCompression] = useState('');
   const [knowledgeExtraction, setKnowledgeExtraction] = useState(false);
@@ -110,24 +117,32 @@ export function CreateContainerDialog({
       defaults?.defaultOpenaiThinkingEffort ??
       defaults?.defaultCodexThinkingEffort ??
       '';
+    const openaiServiceTierDefault =
+      defaults?.defaultOpenaiServiceTier ??
+      defaults?.defaultCodexServiceTier ??
+      '';
     setSystemDefaults({
       defaultLlmProvider: provider,
       defaultAnthropicModel: anthropicDefault,
       defaultOpenaiModel: openaiDefault,
       defaultAnthropicThinkingEffort: anthropicThinkingDefault,
       defaultOpenaiThinkingEffort: openaiThinkingDefault,
+      defaultOpenaiServiceTier: openaiServiceTierDefault,
       defaultClaudeModel: defaults?.defaultClaudeModel ?? anthropicDefault,
       defaultCodexModel: defaults?.defaultCodexModel ?? openaiDefault,
       defaultClaudeThinkingEffort:
         defaults?.defaultClaudeThinkingEffort ?? anthropicThinkingDefault,
       defaultCodexThinkingEffort:
         defaults?.defaultCodexThinkingEffort ?? openaiThinkingDefault,
+      defaultCodexServiceTier:
+        defaults?.defaultCodexServiceTier ?? openaiServiceTierDefault,
     });
     setLlmProvider(provider);
     setClaudeModel(anthropicDefault);
     setCodexModel(openaiDefault);
     setClaudeThinkingEffort(anthropicThinkingDefault || 'default');
     setCodexThinkingEffort(openaiThinkingDefault || 'default');
+    setCodexServiceTier(openaiServiceTierDefault || 'default');
     setContextCompression('');
     setKnowledgeExtraction(false);
   };
@@ -203,6 +218,7 @@ export function CreateContainerDialog({
         claude_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
         codex_model?: string | null;
         codex_thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
+        codex_service_tier?: 'fast' | 'flex' | null;
         model?: string;
         thinking_effort?: 'low' | 'medium' | 'high' | 'xhigh' | null;
         context_compression?: string;
@@ -225,6 +241,8 @@ export function CreateContainerDialog({
       options.codex_model = codexModel.trim() || null;
       options.codex_thinking_effort =
         codexThinkingEffort === 'default' ? null : codexThinkingEffort;
+      options.codex_service_tier =
+        codexServiceTier === 'default' ? null : codexServiceTier;
       if (model.trim()) options.model = model.trim();
       if (thinkingEffort !== 'default') options.thinking_effort = thinkingEffort;
       if (contextCompression.trim()) options.context_compression = contextCompression.trim();
@@ -487,6 +505,27 @@ export function CreateContainerDialog({
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {llmProvider === 'openai' && (
+                        <div>
+                          <Label className="mb-2 text-xs text-muted-foreground">服务档位</Label>
+                          <Select
+                            value={codexServiceTier}
+                            onValueChange={(value) =>
+                              setCodexServiceTier(value as 'default' | 'fast' | 'flex')
+                            }
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">跟随默认(Standard)</SelectItem>
+                              <SelectItem value="fast">Fast</SelectItem>
+                              <SelectItem value="flex">Flex</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
 
                       <div>
                         <Label className="mb-2 text-xs text-muted-foreground">上下文压缩策略</Label>

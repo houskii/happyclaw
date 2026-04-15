@@ -4,7 +4,7 @@ import path from 'path';
 
 import { ASSISTANT_NAME, DATA_DIR } from './config.js';
 import { logger } from './logger.js';
-import type { ThinkingEffort } from './types.js';
+import type { CodexServiceTier, ThinkingEffort } from './types.js';
 
 const MAX_FIELD_LENGTH = 2000;
 const CURRENT_CONFIG_VERSION = 3;
@@ -3465,6 +3465,7 @@ export interface SystemSettings {
   defaultCodexModel: string;
   defaultClaudeThinkingEffort: ThinkingEffort | '';
   defaultCodexThinkingEffort: ThinkingEffort | '';
+  defaultCodexServiceTier: CodexServiceTier | '';
   // Provider-level extensible endpoints (usage + SDK)
   claudeUsageApiUrl: string;
   codexUsageApiUrl: string;
@@ -3700,6 +3701,7 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   defaultCodexModel: '',
   defaultClaudeThinkingEffort: '',
   defaultCodexThinkingEffort: '',
+  defaultCodexServiceTier: '',
   claudeUsageApiUrl: 'https://api.anthropic.com/api/oauth/usage',
   codexUsageApiUrl: '',
   claudeSdkBaseUrl: '',
@@ -3723,6 +3725,13 @@ function normalizeThinkingEffort(
     value === 'xhigh'
     ? value
     : fallback;
+}
+
+function normalizeCodexServiceTier(
+  value: unknown,
+  fallback: CodexServiceTier | '' = '',
+): CodexServiceTier | '' {
+  return value === 'fast' || value === 'flex' ? value : fallback;
 }
 
 export function resolveDefaultWorkspaceExecutionMode(options: {
@@ -3904,6 +3913,10 @@ function readSystemSettingsFromFile(): SystemSettings | null {
       raw.defaultCodexThinkingEffort,
       DEFAULT_SYSTEM_SETTINGS.defaultCodexThinkingEffort,
     ),
+    defaultCodexServiceTier: normalizeCodexServiceTier(
+      raw.defaultCodexServiceTier,
+      DEFAULT_SYSTEM_SETTINGS.defaultCodexServiceTier,
+    ),
     claudeUsageApiUrl:
       typeof raw.claudeUsageApiUrl === 'string'
         ? raw.claudeUsageApiUrl.trim()
@@ -4037,6 +4050,10 @@ function buildEnvFallbackSettings(): SystemSettings {
       process.env.DEFAULT_CODEX_THINKING_EFFORT,
       DEFAULT_SYSTEM_SETTINGS.defaultCodexThinkingEffort,
     ),
+    defaultCodexServiceTier: normalizeCodexServiceTier(
+      process.env.DEFAULT_CODEX_SERVICE_TIER,
+      DEFAULT_SYSTEM_SETTINGS.defaultCodexServiceTier,
+    ),
     claudeUsageApiUrl:
       process.env.CLAUDE_USAGE_API_URL || DEFAULT_SYSTEM_SETTINGS.claudeUsageApiUrl,
     codexUsageApiUrl:
@@ -4168,6 +4185,9 @@ export function saveSystemSettings(
   );
   merged.defaultCodexThinkingEffort = normalizeThinkingEffort(
     merged.defaultCodexThinkingEffort,
+  );
+  merged.defaultCodexServiceTier = normalizeCodexServiceTier(
+    merged.defaultCodexServiceTier,
   );
   // Feishu domains: strip protocol prefix and trailing slash
   for (const key of ['feishuApiDomain', 'feishuDocDomain'] as const) {

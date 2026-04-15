@@ -36,6 +36,7 @@ const WORKSPACE_SKILLS = process.env.HAPPYCLAW_SKILLS_DIR || '/workspace/user-sk
 
 const CLAUDE_MODEL = process.env.HAPPYCLAW_MODEL || process.env.ANTHROPIC_MODEL || 'opus';
 const THINKING_EFFORT = process.env.HAPPYCLAW_THINKING_EFFORT || undefined;
+const CODEX_SERVICE_TIER = process.env.HAPPYCLAW_CODEX_SERVICE_TIER || undefined;
 
 const ipcPaths = buildIpcPaths(WORKSPACE_IPC);
 const IM_CHANNELS_FILE = path.join(WORKSPACE_IPC, '.recent-im-channels.json');
@@ -189,6 +190,7 @@ async function main(): Promise<void> {
       memoryDir: WORKSPACE_MEMORY,
       model: codexModel,
       thinkingEffort: THINKING_EFFORT,
+      serviceTier: CODEX_SERVICE_TIER,
       loadUserMcpServers,
       skillsDir: WORKSPACE_SKILLS,
     });

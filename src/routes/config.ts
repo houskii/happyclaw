@@ -142,6 +142,7 @@ function toSystemSettingsResponse(settings = getSystemSettings()) {
     defaultOpenaiModel: settings.defaultCodexModel,
     defaultAnthropicThinkingEffort: settings.defaultClaudeThinkingEffort,
     defaultOpenaiThinkingEffort: settings.defaultCodexThinkingEffort,
+    defaultOpenaiServiceTier: settings.defaultCodexServiceTier,
     anthropicUsageApiUrl: settings.claudeUsageApiUrl,
     openaiUsageApiUrl: settings.codexUsageApiUrl,
     anthropicSdkBaseUrl: settings.claudeSdkBaseUrl,
@@ -166,6 +167,9 @@ function normalizeSystemSettingsInput(
   if (typeof payload.defaultOpenaiThinkingEffort === 'string') {
     normalized.defaultCodexThinkingEffort = payload.defaultOpenaiThinkingEffort;
   }
+  if (typeof payload.defaultOpenaiServiceTier === 'string') {
+    normalized.defaultCodexServiceTier = payload.defaultOpenaiServiceTier;
+  }
   if (typeof payload.anthropicUsageApiUrl === 'string') {
     normalized.claudeUsageApiUrl = payload.anthropicUsageApiUrl;
   }
@@ -183,6 +187,7 @@ function normalizeSystemSettingsInput(
   delete normalized.defaultOpenaiModel;
   delete normalized.defaultAnthropicThinkingEffort;
   delete normalized.defaultOpenaiThinkingEffort;
+  delete normalized.defaultOpenaiServiceTier;
   delete normalized.anthropicUsageApiUrl;
   delete normalized.openaiUsageApiUrl;
   delete normalized.anthropicSdkBaseUrl;
